@@ -1,0 +1,29 @@
+name: Simple Go Pipeline - validate
+
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+# The shared workflow rewrites the coverage line in README.md on a push to
+# master, so the token needs to commit and push that change.
+permissions:
+  contents: write
+
+jobs:
+  call-workflow:
+    uses: baalimago/simple-go-pipeline/.github/workflows/validate.yml@4db15db8a791280dfac87dfc23a7f6464ad86e4d
+    with:
+      go-version: "1.26.5"
+      # The versions the local gate pins, so CI and `make qa` run the same tools.
+      staticcheck-version: "v0.7.0"
+      gofumpt-version: "v0.11.0"
+      # The shared workflow runs gofumpt and staticcheck as its own steps. The
+      # two remaining lint checks of `make lint` run before them.
+      prerun-step-cmd: 'go vet ./... && test -z "$(go fix -diff ./...)"'
+      # `make test` is the one Go test command: race detector, three counts, a
+      # per-package deadline, a coverage profile across every package, and the
+      # 70 % floor. The shared workflow reads that same profile.
+      test-command: "make test"
+      coverage-command: "go tool cover -func=.build/cover.out | tail -1 | grep -oE '[0-9]+\\.[0-9]+'"

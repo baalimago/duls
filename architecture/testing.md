@@ -63,6 +63,18 @@ and fails on any output. `make qa` is both.
 Do not weaken `-race`, `-count`, or `-timeout`. Do not add a build tag, an
 environment variable, or a flag that hides a subset of the suite.
 
+## Pipeline
+
+`.github/workflows/validate.yml` calls the shared
+`baalimago/simple-go-pipeline` validate workflow at a pinned commit. The
+caller supplies this repository's gate: a prerun step for `go vet` and
+`go fix -diff`, the shared `gofumpt` and `staticcheck` steps, and
+`test-command: make test`, so CI runs the same command as the developer. On
+a push to `master` the workflow reads the profile and rewrites the
+`Test coverage:` line in `README.md`; a pull request never writes.
+`.github/workflows/release.yml` calls the shared release workflow on a semver
+tag and injects the tag into `internal/app.Version`.
+
 ## Gotchas
 
 - The scenario binary is built by `go build`, not by the test binary, so its
