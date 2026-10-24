@@ -14,8 +14,8 @@ func WitnessOf(info os.FileInfo) Witness {
 	if st, ok := info.Sys().(*syscall.Stat_t); ok {
 		w.Dev = uint64(st.Dev)
 		w.Ino = st.Ino
-		w.Mod = time.Unix(st.Mtim.Sec, st.Mtim.Nsec)
-		w.Change = time.Unix(st.Ctim.Sec, st.Ctim.Nsec)
+		w.Mod = time.Unix(int64(st.Mtim.Sec), int64(st.Mtim.Nsec))
+		w.Change = time.Unix(int64(st.Ctim.Sec), int64(st.Ctim.Nsec))
 	}
 	return w
 }

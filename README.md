@@ -9,7 +9,11 @@ A bit of `du`, a bit of `ls`. An adaptive and _very fast_ way to analyze a filet
 
 ## Install
 
-Build from source:
+```sh
+curl -fsSL https://raw.githubusercontent.com/baalimago/duls/master/setup.sh | sh
+```
+
+Or build from source:
 
 ```sh
 go install github.com/baalimago/duls@latest
