@@ -1,5 +1,7 @@
 # `duls` - The filetree inspector
 
+Test coverage: ?
+
 <div align="center">
   <img src="img/duls-demo.gif" alt="Hyper-optimized filetree inspector. Focusing on whats important, within when you want it.">
   <p>Hyper-optimized filetree inspector. Focusing on whats important, within when you want it.</p>
