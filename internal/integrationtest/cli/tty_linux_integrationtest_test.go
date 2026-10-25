@@ -45,6 +45,29 @@ func TestScenarioFrameIsErasedBeforeTheView(t *testing.T) {
 	}
 }
 
+// TestScenarioFrameDrawsTheViewItIsBuilding proves the frame draws the rows the
+// walk holds while it runs: a row marked a lower bound appears before the
+// answer, which no frame can show once the walk has returned and its facts are
+// final (I12, I15, architecture/frame.md).
+func TestScenarioFrameDrawsTheViewItIsBuilding(t *testing.T) {
+	root := nest(t, 30, 4, 200)
+	res := itest.RunOnTTY(t, root, 150, "-m", "0", "-t", "0", "-r", "0", root)
+	if res.Code != 0 || res.Stderr != "" {
+		t.Fatalf("duls = %d, %q; want 0", res.Code, res.Stderr)
+	}
+	cut := strings.LastIndex(res.Stdout, "\x1b[2K")
+	if cut < 0 {
+		t.Fatalf("the run drew no frame: %q", res.Stdout)
+	}
+	frames := itest.StripANSI(res.Stdout[:cut])
+	for line := range strings.SplitSeq(frames, "\n") {
+		if strings.Contains(line, "■") && strings.Contains(line, "d0") && strings.Contains(line, "~") {
+			return
+		}
+	}
+	t.Fatalf("no frame drew a row of the facts the walk held:\n%s", frames)
+}
+
 // answer is the view a visual run wrote last: everything after the frame's
 // final erase, or the whole stream when no frame was drawn.
 func answer(styled string) string {

@@ -104,11 +104,15 @@ type FoldedEntry struct {
 
 // Child is one child of a directory row. Files is set for a directory and null
 // for a file; Lines is set for a file and null when the run did not prove one.
+// A directory child carries Exact, false when Files is the lower bound the walk
+// holds for a subtree it has not finished; a file child has no such bound and no
+// key.
 type Child struct {
 	Name  string `json:"name"`
 	Kind  string `json:"kind"`
 	Files *int   `json:"files"`
 	Lines *int64 `json:"lines"`
+	Exact *bool  `json:"exact,omitempty"`
 }
 
 // Accounting states the completeness of the run: the phase that stopped, the
@@ -251,8 +255,8 @@ func row(e plan.Entry) (any, error) {
 func child(kid plan.Item) Child {
 	c := Child{Name: kid.Name, Kind: kindFile}
 	if kid.Dir {
-		files := kid.Files
-		c.Kind, c.Files = kindDir, &files
+		exact, files := kid.Exact, kid.Files
+		c.Kind, c.Files, c.Exact = kindDir, &files, &exact
 		return c
 	}
 	c.Lines = lines(kid.Lines)

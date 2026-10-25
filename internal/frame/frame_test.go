@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -91,17 +92,70 @@ func TestIntervalThrottles(t *testing.T) {
 		r.Publish(obs(2+i, 20, 0, 1))
 	}
 	if out.Len() != first {
-		t.Fatalf("Publish.3: a second frame landed in one directory: %q", out.String()[first:])
+		t.Fatalf("Publish.3: a second frame landed inside the interval: %q", out.String()[first:])
 	}
-	c.advance(10 * time.Millisecond)
-	r.Publish(obs(9, 90, 0, 2))
-	if out.Len() != first {
-		t.Fatalf("Publish.3: a frame landed inside the interval: %q", out.String()[first:])
-	}
-	c.advance(90 * time.Millisecond)
-	r.Publish(obs(10, 100, 0, 3))
+	c.advance(50 * time.Millisecond)
+	r.Publish(obs(9, 90, 0, 1))
 	if out.Len() == first {
-		t.Fatal("Publish.3: no frame after a new directory and the interval")
+		t.Fatal("Publish.3: no frame after the interval, want one without a new directory")
+	}
+}
+
+// slowWriter charges the clock for every block it writes, as a stalled terminal
+// does.
+type slowWriter struct {
+	out  *bytes.Buffer
+	at   *clock
+	cost time.Duration
+}
+
+func (w *slowWriter) Write(p []byte) (int, error) {
+	w.at.advance(w.cost)
+	return w.out.Write(p)
+}
+
+// TestFrameCostStretchesTheInterval proves a frame that costs more time than the
+// interval buys itself room: the next frame waits five times that cost, so a
+// frame never spends more than a fifth of the run on drawing (Publish.3).
+func TestFrameCostStretchesTheInterval(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		cost    time.Duration
+		inWrite bool
+	}{
+		{name: "lines", cost: 4 * time.Millisecond},
+		{name: "write", cost: 6 * time.Millisecond, inWrite: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var out bytes.Buffer
+			c := newClock()
+			var w io.Writer = &out
+			if tt.inWrite {
+				w = &slowWriter{out: &out, at: c, cost: tt.cost}
+			}
+			lines := func(p scan.Progress) []string {
+				if !tt.inWrite {
+					c.advance(tt.cost)
+				}
+				return []string{fmt.Sprintf("files %d", p.Files)}
+			}
+			r := frame.New(frame.Options{Out: w, Enabled: true, Now: c.now, Lines: lines, Interval: 16 * time.Millisecond})
+			r.Publish(obs(1, 10, 0, 1))
+			first := out.Len()
+			if first == 0 {
+				t.Fatal("Publish.3: the first observation drew nothing")
+			}
+			c.advance(5*tt.cost - 2*time.Millisecond)
+			r.Publish(obs(2, 20, 0, 1))
+			if out.Len() != first {
+				t.Fatalf("Publish.3: a frame landed inside five times the last frame's cost: %q", out.String()[first:])
+			}
+			c.advance(3 * time.Millisecond)
+			r.Publish(obs(3, 30, 0, 1))
+			if out.Len() == first {
+				t.Fatal("Publish.3: no frame after five times the last frame's cost")
+			}
+		})
 	}
 }
 

@@ -66,8 +66,10 @@ states its own `bytes` and `lines`. A folded row states the summed `files`,
 byte order, and a `name` of the form `+N smaller`. Every row carries `exact`,
 which is false when its `bytes` is a lower bound.
 
-A child states `name` and `kind`. A directory child states `files` and a null
-`lines`; a file child states `lines` and a null `files`.
+A child states `name` and `kind`. A directory child states `files`, a null
+`lines`, and `exact`, which is false when `files` is the lower bound the walk
+holds for a subtree it has not finished. A file child states `lines`, a null
+`files`, and no `exact` key.
 
 **`filesystem` states the device.** The object is `total`, `used` and `avail`
 bytes of the filesystem that holds the root, the quantity `df` prints. It is
@@ -84,8 +86,10 @@ never changes this document.
 
 **An absent value is not a zero.** `lines` is `null` when the count did not
 prove a value for that file, and a directory child has no `lines` value at all,
-because a line count does not belong to its kind. `exact` is false when `bytes`
-is a lower bound. A reader that sees no value must report that it has none.
+because a line count does not belong to its kind. A row's `exact` is false when
+its `bytes` is a lower bound; a child's `exact` is false when its `files` is one,
+and a file child carries no such key because it states its own bytes. A reader
+that sees no value must report that it has none.
 
 **`accounting` states the completeness.** `stopped` is `none` when both phases
 finished, else the phase that stopped, `walk` or `count`. `limit` names the

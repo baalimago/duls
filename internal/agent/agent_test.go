@@ -70,7 +70,7 @@ func TestEncodeStatesWhatTheRunCouldNotProve(t *testing.T) {
 		`"linesExact":false`,
 		`"stopped":"count","limit":"1.5s"`,
 		`"measured":3,"notScanned":3,"skipped":1,"unknown":2,"unreadable":1,"unreadableDirs":2,"otherFilesystems":3,"reused":2`,
-		`{"name":"sub","kind":"dir","files":3,"lines":null}`,
+		`{"name":"sub","kind":"dir","files":3,"lines":null,"exact":false}`,
 		`{"name":"a.md","kind":"file","files":null,"lines":null}`,
 		`"kind":"file","depth":0,"bytes":100,"exact":true,"lines":null`,
 		`{"name":"+2 smaller","kind":"folded","files":2,"bytes":50,"share":12,"exact":false,"names":["a","b"]}`,

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -132,10 +133,11 @@ type Sink interface {
 	//   - Files, Bytes, Lines and Dirs are cumulative counters; each is greater
 	//     than or equal to its value in the previous observation of the same
 	//     phase. (Publish.1)
-	//   - A walk publishes after each 4096 files per worker with PhaseWalk, and
-	//     cumulative Files, Bytes and Dirs counters; Bytes is the byte total of
-	//     the files already counted, and Lines is zero during the walk. Dirs
-	//     counts completed directories. (Publish.2, D29)
+	//   - A walk publishes after each 4096 files per worker and after each
+	//     directory it lists, with PhaseWalk and cumulative Files, Bytes and Dirs
+	//     counters; Bytes is the byte total of the files already counted, and
+	//     Lines is zero during the walk. Dirs counts completed directories. The
+	//     observation carries Tree. (Publish.2, D29)
 	//   - Publish never blocks: a sink that cannot keep up drops the update. (Publish.3)
 	Publish(p Progress)
 }
@@ -149,6 +151,13 @@ type Progress struct {
 	Bytes int64
 	Lines int64
 	Dirs  int64
+	// Tree, when not nil, returns the fact set the walk holds at this moment,
+	// declared as an unfinished walk: the directories it has listed carry the
+	// partial totals they proved, and Frontier names every open subtree. The
+	// call takes the walk's aggregate lock and builds the fact set, so a sink
+	// calls it only for an observation it renders. A count phase leaves it nil,
+	// because its facts are the walk's snapshot.
+	Tree func() Snapshot
 }
 
 // Phase names the stage that produced a Progress.
@@ -174,8 +183,9 @@ type Walker interface {
 	//   - Kids holds at most the six largest children by bytes, ties by name,
 	//     and no per-file value survives the walk. (Walk.5, I21)
 	//   - context.DeadlineExceeded returns the facts held, Stopped set, and a
-	//     nil error. context.Canceled returns a wrapped error and no snapshot.
-	//     (Walk.6, I11)
+	//     nil error; the files and bytes counted inside a directory the cut left
+	//     open stay in the totals as lower bounds. context.Canceled returns a
+	//     wrapped error and no snapshot. (Walk.6, I11)
 	//   - A directory that cannot be read, a child that cannot be stat'ed, or a
 	//     root that is not a directory returns a wrapped error and no snapshot.
 	//     A directory below the root whose listing is refused for permission is
@@ -224,14 +234,17 @@ func (walker) Walk(ctx context.Context, root string, opts WalkOptions, sink Sink
 // directory on another device, because another filesystem is mounted there and
 // its entries are not part of the tree it reports (architecture/scan.md).
 func newWalk(root string, dev uint64, opts WalkOptions, sink Sink) *walk {
-	return &walk{
+	w := &walk{
 		opts:     opts,
 		sink:     sink,
 		root:     root,
 		dev:      dev,
 		skips:    skipSet(opts.Skip),
+		census:   map[string]int{},
 		rootNode: &dirNode{path: "", name: ""},
 	}
+	w.tree = w.liveSnapshot
+	return w
 }
 
 // run walks the tree and returns its fact set.
@@ -273,7 +286,6 @@ type dirNode struct {
 	bytes   int64
 	unread  int
 	fileK   []Child
-	ext     map[string]int
 	dirs    []*dirNode
 }
 
@@ -301,6 +313,11 @@ type walk struct {
 	bytes atomic.Int64
 	dirs  atomic.Int64
 	pubMu sync.Mutex
+
+	// census counts the extensions of every file the walk counted, guarded by
+	// aggMu; tree is the sink's view of the facts held at one observation.
+	census map[string]int
+	tree   func() Snapshot
 }
 
 func (w *walk) walk(ctx context.Context) error {
@@ -378,8 +395,8 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		}
 		return fmt.Errorf("scan: stat %s: %w", path, err)
 	}
-	node.witness = WitnessOf(info)
-	if node.path != "" && w.dev != 0 && node.witness.Dev != w.dev {
+	witness := WitnessOf(info)
+	if node.path != "" && w.dev != 0 && witness.Dev != w.dev {
 		w.elsewhere(node)
 		return nil
 	}
@@ -391,8 +408,8 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		}
 		return fmt.Errorf("scan: read %s: %w", path, err)
 	}
-	node.listed = true
-	var pendingFiles, pendingBytes int64
+	w.markListed(node, witness)
+	var got gathered
 	for _, entry := range entries {
 		name := entry.Name()
 		if !w.opts.All && strings.HasPrefix(name, ".") {
@@ -403,8 +420,7 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		}
 		if entry.IsDir() {
 			child := &dirNode{path: joinPath(node.path, name), name: name, parent: node}
-			node.dirs = append(node.dirs, child)
-			node.pending++
+			got.dirs = append(got.dirs, child)
 			*next = append(*next, child)
 			continue
 		}
@@ -412,9 +428,11 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		entryInfo, err := entry.Info()
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) && entry.Type().IsRegular() {
-				node.count(name)
-				node.unread++
-				pendingFiles++
+				got.refuse(name)
+				if got.files%progressStride == 0 {
+					w.record(node, &got)
+					w.publish()
+				}
 				continue
 			}
 			if errors.Is(err, fs.ErrNotExist) {
@@ -425,18 +443,13 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		if !entryInfo.Mode().IsRegular() {
 			continue
 		}
-		node.count(name)
-		node.bytes += entryInfo.Size()
-		node.fileK = keepLargest(node.fileK, Child{Name: name, Bytes: entryInfo.Size(), Lines: -1})
-		pendingFiles++
-		pendingBytes += entryInfo.Size()
-		if pendingFiles%progressStride == 0 {
-			w.add(pendingFiles, pendingBytes)
-			pendingFiles, pendingBytes = 0, 0
+		got.count(name, entryInfo.Size())
+		if got.files%progressStride == 0 {
+			w.record(node, &got)
 			w.publish()
 		}
 	}
-	w.add(pendingFiles, pendingBytes)
+	w.record(node, &got)
 	w.finish(node)
 	w.publish()
 	return nil
@@ -462,7 +475,7 @@ func (w *walk) elsewhere(node *dirNode) {
 }
 
 // abandon completes a directory the walk proved nothing about, so its ancestors
-// fold as if it were empty and the facts the walk did prove still reach the
+// close as if it were empty and the facts the walk did prove still reach the
 // root. A directory that vanished before the walk listed it is abandoned, and a
 // refused one is abandoned and declared (architecture/scan.md).
 func (w *walk) abandon(node *dirNode) {
@@ -476,35 +489,74 @@ func (w *walk) abandon(node *dirNode) {
 	w.finish(parent)
 }
 
-func (w *walk) add(files, bytes int64) {
-	if files != 0 {
-		w.files.Add(files)
-	}
-	if bytes != 0 {
-		w.bytes.Add(bytes)
-	}
+// gathered is one listing's proof, accumulated by the worker that owns the
+// listing so the shared tree is touched once per batch, not once per file.
+type gathered struct {
+	files  int
+	bytes  int64
+	unread int
+	kids   []Child
+	dirs   []*dirNode
+	ext    map[string]int
 }
 
-// count records one proved file and its type in the node's own totals.
-func (node *dirNode) count(name string) {
-	node.files++
-	if node.ext == nil {
-		node.ext = map[string]int{}
+// count records one proved file: its bytes, its place among the directory's
+// largest files, and its final extension.
+func (g *gathered) count(name string, size int64) {
+	g.files++
+	g.bytes += size
+	g.kids = keepLargest(g.kids, Child{Name: name, Bytes: size, Lines: -1})
+	if g.ext == nil {
+		g.ext = map[string]int{}
 	}
-	node.ext[extOf(name)]++
+	g.ext[extOf(name)]++
 }
 
-// merge folds a finished child's type census into its parent's.
-func (node *dirNode) merge(child *dirNode) {
-	if len(child.ext) == 0 {
+// refuse records a file whose size the walk could not read: it counts toward the
+// totals and the census, and never toward the largest children, because a known
+// child states its own bytes (architecture/scan.md).
+func (g *gathered) refuse(name string) {
+	g.files++
+	g.unread++
+	if g.ext == nil {
+		g.ext = map[string]int{}
+	}
+	g.ext[extOf(name)]++
+}
+
+// record folds one batch into the directory and every ancestor, so each node's
+// files, bytes and unreadable count are the subtree total the walk holds right
+// now, including the directories it has not finished (architecture/scan.md).
+func (w *walk) record(node *dirNode, g *gathered) {
+	if g.files == 0 && len(g.dirs) == 0 {
 		return
 	}
-	if node.ext == nil {
-		node.ext = map[string]int{}
+	w.aggMu.Lock()
+	defer w.aggMu.Unlock()
+	for at := node; at != nil; at = at.parent {
+		at.files += g.files
+		at.bytes += g.bytes
+		at.unread += g.unread
 	}
-	for ext, files := range child.ext {
-		node.ext[ext] += files
+	for _, kid := range g.kids {
+		node.fileK = keepLargest(node.fileK, kid)
 	}
+	node.dirs = append(node.dirs, g.dirs...)
+	node.pending += len(g.dirs)
+	for ext, count := range g.ext {
+		w.census[ext] += count
+	}
+	w.files.Add(int64(g.files))
+	w.bytes.Add(g.bytes)
+	*g = gathered{}
+}
+
+// markListed records a successful listing of a directory and its witness.
+func (w *walk) markListed(node *dirNode, witness Witness) {
+	w.aggMu.Lock()
+	node.listed = true
+	node.witness = witness
+	w.aggMu.Unlock()
 }
 
 // extOf returns the final extension of a base name, lowercased with its dot,
@@ -533,7 +585,15 @@ func (w *walk) publish() {
 		Files: w.files.Load(),
 		Bytes: w.bytes.Load(),
 		Dirs:  w.dirs.Load(),
+		Tree:  w.tree,
 	})
+}
+
+// liveSnapshot is the fact set the walk holds at one observation, declared as
+// an unfinished walk: a run that is still counting has proved nothing final
+// (architecture/frame.md).
+func (w *walk) liveSnapshot() Snapshot {
+	return w.snapshot(StopDeadline)
 }
 
 func (w *walk) finish(node *dirNode) {
@@ -544,10 +604,6 @@ func (w *walk) finish(node *dirNode) {
 		w.dirs.Add(1)
 		parent := node.parent
 		if parent != nil {
-			parent.files += node.files
-			parent.bytes += node.bytes
-			parent.unread += node.unread
-			parent.merge(node)
 			parent.pending--
 		}
 		node = parent
@@ -580,6 +636,8 @@ func skipSet(paths []string) map[string]bool {
 }
 
 func (w *walk) snapshot(stopped Stop) Snapshot {
+	w.aggMu.Lock()
+	defer w.aggMu.Unlock()
 	frontier := w.frontier()
 	w.refMu.Lock()
 	frontier = append(frontier, w.refused...)
@@ -601,12 +659,15 @@ func (w *walk) snapshot(stopped Stop) Snapshot {
 		snapshot.Files = w.rootNode.files
 		snapshot.Bytes = w.rootNode.bytes
 		snapshot.Unreadable = w.rootNode.unread
-		snapshot.Types = w.rootNode.ext
+		snapshot.Types = maps.Clone(w.census)
 	}
 	w.flatten(w.rootNode, &snapshot.Dirs)
 	return snapshot
 }
 
+// frontier names every subtree whose facts are still open: a directory the walk
+// has not listed, and a directory whose own entries it is still counting, which
+// no child can report for it (architecture/scan.md).
 func (w *walk) frontier() []string {
 	var out []string
 	var visit func(node *dirNode)
@@ -614,11 +675,8 @@ func (w *walk) frontier() []string {
 		if node.done {
 			return
 		}
-		if !node.listed {
+		if !node.listed || node.pending == 0 {
 			out = append(out, node.path)
-			return
-		}
-		if node.pending == 0 {
 			return
 		}
 		for _, child := range node.dirs {

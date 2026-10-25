@@ -294,7 +294,7 @@ func peek(entry plan.Entry) string {
 	for _, kid := range entry.Kids {
 		switch {
 		case kid.Dir:
-			items = append(items, kid.Name+" "+siCount(int64(kid.Files)))
+			items = append(items, kid.Name+" "+mark(siCount(int64(kid.Files)), kid.Exact))
 		case kid.Lines < 0:
 			items = append(items, kid.Name+" ?")
 		default:

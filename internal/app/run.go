@@ -45,7 +45,7 @@ type Request struct {
 
 // The composition's constants are the README's parameters.
 const (
-	frameInterval = 100 * time.Millisecond
+	frameInterval = 16 * time.Millisecond
 	storeCap      = 32 << 20
 	flushBudget   = 200 * time.Millisecond
 	largeCap      = 64 << 20
@@ -246,15 +246,20 @@ func (l *live) set(snapshot scan.Snapshot) {
 	l.snapshot = &snapshot
 }
 
-// lines draws the frame from the facts held right now: the walk's running
-// totals before the snapshot exists, then that snapshot with the count's
-// progress. Every value it has not proved stays marked (README I3).
+// lines draws the frame from the facts held right now: the walk's live tree,
+// then its snapshot with the count's progress. Every value the run has not
+// proved stays marked (architecture/view.md).
 func (l *live) lines(p scan.Progress) []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	snapshot := scan.Snapshot{Files: int(p.Files), Bytes: p.Bytes, Stopped: scan.StopDeadline}
-	if l.snapshot != nil {
+	var snapshot scan.Snapshot
+	switch {
+	case p.Tree != nil:
+		snapshot = p.Tree()
+	case l.snapshot != nil:
 		snapshot = *l.snapshot
+	default:
+		snapshot = scan.Snapshot{Files: int(p.Files), Bytes: p.Bytes, Stopped: scan.StopDeadline}
 	}
 	measured := plan.Measured{Total: p.Lines, Measured: int(p.Files)}
 	return l.renderer.Lines(l.planner.Plan(snapshot, measured), l.opts)

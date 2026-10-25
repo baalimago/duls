@@ -129,6 +129,23 @@ func TestPeekFitting(t *testing.T) {
 	}
 }
 
+func TestPeekMarksALowerBoundChild(t *testing.T) {
+	entry := plan.Entry{
+		Name: "src", Kind: plan.Directory, Files: 6, Bytes: 600, Share: 100,
+		Kids: []plan.Item{
+			{Name: "lib", Dir: true, Files: 4, Exact: true},
+			{Name: "docs", Dir: true, Files: 2},
+		},
+	}
+	v := plan.View{Totals: plan.Totals{Files: 6, Bytes: 600}, Entries: []plan.Entry{entry}}
+	row := rowContaining(t, body(v, view.Options{Width: 150}), "src")
+	for _, want := range []string{"lib 4", "docs ~2"} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("row = %q, lacks %q", row, want)
+		}
+	}
+}
+
 func TestStripSpansTheWidth(t *testing.T) {
 	for _, width := range []int{40, 60, 100, 150} {
 		lines := view.New().Lines(fullView(), view.Options{Width: width, Style: tui.New(tui.TrueColor)})
@@ -316,7 +333,7 @@ func fullView() plan.View {
 				Kids: []plan.Item{
 					{Name: "main.go", Lines: 120},
 					{Name: "walk.go", Lines: 80},
-					{Name: "lib", Dir: true, Files: 4},
+					{Name: "lib", Dir: true, Files: 4, Exact: true},
 				},
 				More: 2,
 			},

@@ -42,15 +42,21 @@ descending then name. The order is total, so two walks of one tree return
 equal snapshots at any worker count.
 
 `Dir.Files` and `Dir.Bytes` are subtree totals. A total is a lower bound when
-its subtree intersects `Snapshot.Frontier`.
+its subtree intersects `Snapshot.Frontier`. `(*walk).record` folds each counted
+batch into its directory and every ancestor as the walk runs, so a node's
+`Files` and `Bytes` are the subtree total the walk holds right now, including
+the directories it has not finished. A cut therefore keeps what it counted, and
+`Snapshot.Files` and `Snapshot.Bytes` never fall below the work the walk
+reported through its sink.
 
 `Dir.Kids` holds at most the six largest children by bytes, ties by name. It
 is the only per-child value that survives the walk, because it is what the
 view's peek column and the count's dispatch need.
 
-`Snapshot.Unreadable` counts regular files whose permission was refused. Those
-files keep their file and byte facts. `Snapshot.UnreadableDirs` counts the
-directories whose listing was refused.
+`Snapshot.Unreadable` counts regular files whose size the walk could not read.
+They count in `Files` and in the type census and hold no byte fact, so they
+never enter `Kids`: a child states its own bytes. `Snapshot.UnreadableDirs`
+counts the directories whose listing was refused.
 
 A refused directory is not read, so it holds no fact and never appears in
 `Dirs` or `Kids`; its path is a frontier path, so every ancestor's totals are
@@ -80,16 +86,21 @@ the fact out: a run never fails because the device is unknown.
 of the base name and the characters after it, lowercased with the dot, and `""`
 for a name without one. A leading dot alone is not an extension, and a trailing
 dot names none. Directories and hidden entries never enter the census, so the
-counts sum to `Snapshot.Files`. Each directory keeps its own census and folds it
-into its parent when it completes, exactly as it folds files and bytes; a cut
-walk therefore reports the types of the files it proved, not of the files it
-glimpsed.
+counts sum to `Snapshot.Files`. The walk keeps one census for the whole run
+(`walk.census`), fed by the same batch as the totals, so the counts are the
+files the walk counted and never name a file it did not reach, whether the walk
+finished or a deadline cut it.
 
 ## Bounds and ordering
 
 The walk is breadth-first by depth. Unfinished work at any instant is one
-depth band plus the directories its workers hold. A cut leaves that band as
-the frontier, so `Frontier` names the subtrees that are still open.
+depth band plus the directories its workers hold. A directory is open from the
+moment its listing starts until `finish` closes it. `Frontier` names an unlisted
+directory, and a listed directory that has no child directory outstanding and is
+still reading its own entries; once a listed directory holds an unfinished child
+directory, that child's own path stands for it. A path is a lower bound when
+`Frontier` holds it or a path below it, so an ancestor of an open subtree is a
+lower bound without being named.
 
 The queue holds directory paths only. A worker holds one listing and one
 buffer, and a file's facts fold into its directory as it is read.
@@ -100,7 +111,9 @@ Only two events end the walk before it finishes.
 
 `context.DeadlineExceeded` returns the facts held, `Stopped: StopDeadline`,
 and a nil error. `Snapshot.Frontier` then names every open subtree, and the
-view declares a partial view.
+view declares a partial view. The files the walk counted inside an open
+subtree are held too: they fold into their ancestors as lower bounds, so the
+answer states the work the run did and not less.
 
 `context.Canceled` returns a wrapped error and no snapshot.
 
@@ -137,14 +150,20 @@ root, so a run never reports the files it writes (I10).
 
 ## Progress
 
-`Sink.Publish` receives one `Progress` per 4096 files per worker, and never
-blocks: a sink that cannot keep up drops the update. Counters are cumulative
-within a phase. `PhaseWalk` progress carries files, bytes and completed
-directories, and a zero line count; `PhaseCount` progress comes from
-`internal/measure`.
+`Sink.Publish` receives one `Progress` per 4096 files per worker and after each
+listing, and never blocks: a sink that cannot keep up drops the update. Counters
+are cumulative within a phase. `PhaseWalk` progress carries files, bytes and
+completed directories, a zero line count, and `Tree`: a function that returns
+the fact set the walk holds at that moment, declared `StopDeadline` because a
+walk in progress proves nothing final. `Tree` takes the aggregate lock and
+builds the snapshot, so only a sink that renders an observation pays for it.
+`PhaseCount` progress comes from `internal/measure` and carries no tree, because
+its facts are the walk's snapshot.
 
 ## Gotchas
 
+- A snapshot is built under the aggregate lock and copies the census, so a
+  sink renders the facts of one instant and never a map it shares with the walk.
 - `Dir.Kids` is capped at six. A directory with more than six children cannot
   be fully named by the view, and the smallest children are the ones dropped.
   The count measures them all; only the peek is bounded.

@@ -101,6 +101,136 @@ func TestDeadlineReturnsSnapshot(t *testing.T) {
 	}
 }
 
+// TestCutWalkKeepsTheFactsItProved proves a walk cut inside a subtree reports
+// the files it counted there as lower bounds, so the answer never falls below
+// the work the frame has already shown (Walk.2, I1, I3).
+func TestCutWalkKeepsTheFactsItProved(t *testing.T) {
+	root := t.TempDir()
+	file(t, root, "a/one", 5)
+	file(t, root, "b/two", 7)
+	file(t, root, "b/three", 11)
+	file(t, root, "b/deep/four", 13)
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	// The third observation is the listing of b, the last one the walk makes: the
+	// sink holds it there until the deadline has passed, so b/deep stays unlisted
+	// and b unfinished (architecture/scan.md). The delay is much longer than the
+	// deadline so a loaded host still cuts the walk at the same place.
+	sink := &nthSleepSink{at: 3, delay: 500 * time.Millisecond}
+	snap, err := scan.New().Walk(ctx, root, scan.WalkOptions{Workers: 1}, sink)
+	if err != nil {
+		t.Fatalf("walk after deadline: %v", err)
+	}
+	if snap.Stopped != scan.StopDeadline {
+		t.Fatalf("Stopped = %v, want StopDeadline", snap.Stopped)
+	}
+	if snap.Files != 3 || snap.Bytes != 23 {
+		t.Fatalf("totals = %d files, %d bytes; want the 3 files and 23 bytes the walk counted", snap.Files, snap.Bytes)
+	}
+	files := 0
+	for _, count := range snap.Types {
+		files += count
+	}
+	if files != snap.Files {
+		t.Fatalf("type census holds %d files, want the %d the totals report", files, snap.Files)
+	}
+	dirs := map[string]scan.Dir{}
+	for _, dir := range snap.Dirs {
+		dirs[dir.Path] = dir
+	}
+	b, ok := dirs["b"]
+	if !ok {
+		t.Fatal("b is absent from the fact set, want the directory the walk listed")
+	}
+	if b.Files != 2 || b.Bytes != 18 {
+		t.Fatalf("b = %d files, %d bytes; want the 2 files and 18 bytes it counted", b.Files, b.Bytes)
+	}
+	if _, ok := dirs["b/deep"]; ok {
+		t.Fatal("b/deep is in the fact set, want the subtree the cut left unlisted")
+	}
+}
+
+// TestPublishCarriesTheFactsHeld proves each observation hands the sink the
+// fact set the walk holds at that moment: the totals equal its counters, the
+// census sums to the files it counted, and the run is declared unfinished
+// (Publish.2, architecture/scan.md).
+func TestPublishCarriesTheFactsHeld(t *testing.T) {
+	root := t.TempDir()
+	file(t, root, "a/one.txt", 5)
+	file(t, root, "a/two.md", 7)
+	file(t, root, "b/three.txt", 11)
+	sink := &treeSink{}
+	snap, err := scan.New().Walk(context.Background(), root, scan.WalkOptions{Workers: 1}, sink)
+	if err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	observations := sink.updates()
+	if len(observations) < 2 {
+		t.Fatalf("observations = %d, want one per completed directory", len(observations))
+	}
+	for _, o := range observations {
+		if o.snapshot.Files != int(o.progress.Files) || o.snapshot.Bytes != o.progress.Bytes {
+			t.Fatalf("observation holds %d files and %d bytes, want its counters %d and %d",
+				o.snapshot.Files, o.snapshot.Bytes, o.progress.Files, o.progress.Bytes)
+		}
+		if o.snapshot.Stopped != scan.StopDeadline {
+			t.Fatalf("live snapshot Stopped = %v, want the walk declared unfinished", o.snapshot.Stopped)
+		}
+		files := 0
+		for _, count := range o.snapshot.Types {
+			files += count
+		}
+		if files != o.snapshot.Files {
+			t.Fatalf("census holds %d files, want the %d the totals report", files, o.snapshot.Files)
+		}
+	}
+	if got := observations[len(observations)-1].snapshot.Files; got != snap.Files {
+		t.Fatalf("last observation holds %d files, want the walk's %d", got, snap.Files)
+	}
+	rows := false
+	for _, o := range observations {
+		for _, dir := range o.snapshot.Dirs {
+			if dir.Path == "a" && dir.Files == 2 {
+				rows = true
+			}
+		}
+	}
+	if !rows {
+		t.Fatal("no observation carries directory a with the 2 files it counted")
+	}
+}
+
+// TestObservationOpensTheDirectoryItIsCounting proves an observation declares
+// the directory whose entries the walk is still counting: nobody else can report
+// that subtree, so a frame marks its row instead of stating a final count
+// (Publish.2, architecture/scan.md).
+func TestObservationOpensTheDirectoryItIsCounting(t *testing.T) {
+	root := t.TempDir()
+	for i := range 5000 {
+		file(t, root, fmt.Sprintf("flat/f%d", i), 1)
+	}
+	sink := &treeSink{}
+	if _, err := scan.New().Walk(context.Background(), root, scan.WalkOptions{Workers: 1}, sink); err != nil {
+		t.Fatalf("walk: %v", err)
+	}
+	counting := 0
+	for _, o := range sink.updates() {
+		for _, dir := range o.snapshot.Dirs {
+			if dir.Path != "flat" || dir.Files == 0 || dir.Files == 5000 {
+				continue
+			}
+			counting++
+			if !slices.Contains(o.snapshot.Frontier, "flat") {
+				t.Fatalf("frontier = %v, want the directory that holds the %d files it counted",
+					o.snapshot.Frontier, dir.Files)
+			}
+		}
+	}
+	if counting == 0 {
+		t.Fatal("no observation held the directory mid-count, want one between its batches")
+	}
+}
+
 func TestCancelReturnsError(t *testing.T) {
 	root := tree(t, 2, 1)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -156,6 +286,9 @@ func TestPermissionPolicy(t *testing.T) {
 		}
 		if snap.Files != 1 || snap.Unreadable != 1 {
 			t.Fatalf("facts = %d files, %d unreadable; want 1 file counted as unreadable", snap.Files, snap.Unreadable)
+		}
+		if len(snap.Dirs) != 1 || len(snap.Dirs[0].Kids) != 0 {
+			t.Fatalf("kids = %+v, want none: a file whose size the walk could not read is not a known child", snap.Dirs[0].Kids)
 		}
 	})
 }
@@ -443,6 +576,55 @@ type sleepSink struct {
 
 func (s *sleepSink) Publish(scan.Progress) {
 	s.once.Do(func() { time.Sleep(s.delay) })
+}
+
+// observation is one progress report with the facts the sink read while the
+// walk held them.
+type observation struct {
+	progress scan.Progress
+	snapshot scan.Snapshot
+}
+
+// treeSink reads the fact set each observation carries, as a rendering sink
+// does.
+type treeSink struct {
+	mu   sync.Mutex
+	seen []observation
+}
+
+func (s *treeSink) Publish(p scan.Progress) {
+	snap := scan.Snapshot{}
+	if p.Tree != nil {
+		snap = p.Tree()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.seen = append(s.seen, observation{progress: p, snapshot: snap})
+}
+
+func (s *treeSink) updates() []observation {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]observation(nil), s.seen...)
+}
+
+// nthSleepSink holds the walk on the observation number at, so a test can cut a
+// walk at a chosen point in the tree.
+type nthSleepSink struct {
+	at    int
+	delay time.Duration
+	mu    sync.Mutex
+	seen  int
+}
+
+func (s *nthSleepSink) Publish(scan.Progress) {
+	s.mu.Lock()
+	s.seen++
+	sleep := s.seen == s.at
+	s.mu.Unlock()
+	if sleep {
+		time.Sleep(s.delay)
+	}
 }
 
 func TestTypeCensus(t *testing.T) {

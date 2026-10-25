@@ -11,8 +11,9 @@ to a terminal before the final view.
 
 | File | Purpose |
 |------|---------|
-| `internal/frame/frame.go` | `New`, `Options`, `Rasterizer`, `Publish`, `Erase`, `paint`, `eraseSeq`, `drawAll`. |
+| `internal/frame/frame.go` | `New`, `Options`, `Rasterizer`, `Publish`, `Erase`, `due`, `frameDuty`, `paint`, `eraseSeq`, `drawAll`. |
 | `internal/app/run.go` | Builds the frame, passes it as the walk's sink and the count's sink, and erases it before the write. `countSink` adds the walk's files and directories to phase-2 progress, because the count's counters start at zero. |
+| `internal/scan/walk.go` | `Sink`, `Progress`, and `Progress.Tree`: the fact set an observation carries. |
 | `internal/view/view.go` | The renderer the frame's `Lines` callback uses. |
 | `internal/plan/plan.go` | The planner the frame's `Lines` callback uses. |
 
@@ -26,10 +27,12 @@ frame.New(Options{Out, Enabled, Trigger, Interval, Lines})
     disabled, failed, erased   -> return
     counters went backwards    -> return
     not due                    -> return
+    start = Now()
     lines = Lines(progress)     same planner and renderer as the answer
     empty                      -> record the counters, draw nothing
     equal to the frame on screen -> record the counters, draw nothing
     write paint(last, lines)
+    lastCost = Now()-start      the interval waits five times this
   |
   Erase()
     clear exactly the last frame's lines, then accept no more frames
@@ -42,10 +45,26 @@ terminal. A `-json` run, a pipe, a file, `/dev/null`, and a non-empty
 `NO_COLOR` all run without a frame and without a single escape byte.
 
 The first frame appears as soon as the first observation arrives: the
-composition sets the trigger to zero, so a visual run shows its totals line
-while the walk is still counting and adds the type line, the rows and their
-detail when the walk's snapshot exists. Later frames need at least one more
-completed directory and at least 100 ms since the last frame.
+composition sets the trigger to zero, so a visual run draws the totals line, the
+type line and the rows the walk holds at that moment. Later frames need at
+least `Interval` since the last frame; the composition sets it to 16 ms, so a
+small tree updates at the refresh rate of its terminal.
+
+A frame pays for itself. The interval also stretches to five times the cost of
+the last frame, so the frames that follow take at most a fifth of the run's
+time: a tree with many directories, whose snapshot and render cost more, gets
+fewer frames instead of a slower walk. The cost is the time `Lines` takes plus
+the block it writes, and it is the previous frame's cost that sets the next
+interval.
+
+An observation carries `Progress.Tree`, a function that returns the fact set the
+walk holds at that instant. The frame calls it only when it draws, and plans
+that fact set with the same planner and renderer as the answer, so the rows,
+their order, the strip, the type line and the peek column move while the walk
+runs. A tree taken mid-walk is declared an unfinished walk, so its totals and
+its inexact rows carry `~` until the answer replaces them. A `PhaseCount`
+observation carries no tree, so the frame then draws the walk's stored snapshot
+with the count's progress.
 
 A repaint moves the cursor once to the top of the block, rewrites only the
 lines that changed, and leaves the cursor below the block. A line that did not
@@ -77,13 +96,17 @@ returns an error, never panics, and never retries.
 
 ## Gotchas
 
-- The frame can draw the type line and the rows only after the walk returns,
-  because both need the walk's fact set. The walk publishes counters, not
-  directories or types, so an early frame has no lines to draw and is skipped.
+- A tree is built under the walk's aggregate lock, so a frame that draws pauses
+  the walk's fold for the length of one snapshot; the plan and the render run
+  after the lock is released. Only the observation the frame draws pays for it;
+  the walk carries a function, not a copy. The interval stretch is what keeps
+  that pause a fifth of the run at worst.
 - The first paint has no cursor movement: it draws the whole block. The erase
   is what leaves cursor-up sequences in the stream.
 - A frame is skipped when its lines equal the frame on screen, so a slow walk
   with unchanged facts does not repaint.
+- A cut keeps the facts it counted, so the answer is never smaller than the last
+  frame: the totals the frame counted up to are the totals the answer states.
 - `Options.Now` is the test clock. The composition leaves it nil.
 
 ## Related

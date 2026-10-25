@@ -22,13 +22,16 @@ const (
 )
 
 // Item is one child of a directory that has no row of its own.
-// Lines is -1 when the run has not measured it.
+// Lines is -1 when the run has not measured it. Exact is false when Files is
+// the lower bound the walk holds for a subtree it has not finished; a file
+// item reports its own bytes and carries no such bound.
 type Item struct {
 	Name  string
 	Dir   bool
 	Bytes int64
 	Files int
 	Lines int64
+	Exact bool
 }
 
 // Entry is one row of the view.
@@ -130,7 +133,9 @@ type Planner interface {
 	//     top-level entries that got no row and sums their Files and Bytes.
 	//     (Plan.3)
 	//   - Kids holds at most 6 Items, sorted by Bytes descending then Name, and
-	//     More counts the children that did not fit. (Plan.4, I13, I21)
+	//     More counts the children that did not fit. A directory item of a
+	//     subtree the walk has not finished carries Exact false, because its
+	//     Files is the lower bound the walk holds so far. (Plan.4, I13, I21)
 	//   - Promotion: a directory with 2 or more files and no row of its own
 	//     becomes a row while a slot remains, inserted after its parent's
 	//     subtree, largest first. (Plan.5, I13)
@@ -143,13 +148,14 @@ type Planner interface {
 	//     another filesystem, or any phase stopped. Totals.Stopped and
 	//     Totals.StoppedPhase name the phase that stopped, the walk first.
 	//     Totals.BytesExact is false when the walk stopped, a refused directory
-	//     left a subtree open, or another filesystem was left unentered, and
-	//     Totals.UnreadableDirs and Totals.OtherFilesystems count those
-	//     directories. Rows whose subtree contains a Frontier path are lower
-	//     bounds, and a folded row is a lower bound when one of the entries it
-	//     stands for is. Totals.Filesystem states the usage of the device that
-	//     holds the root under the same condition, because the device holds the
-	//     subtrees the run could not reach. (Plan.8, I1, I3, I4)
+	//     left a subtree open, another filesystem was left unentered, or the size
+	//     of a file was refused, and Totals.UnreadableDirs and
+	//     Totals.OtherFilesystems count those directories. Rows whose subtree
+	//     contains a Frontier path are lower bounds, a file row is exact because
+	//     it states its own bytes, and a folded row is a lower bound when one of
+	//     the entries it stands for is. Totals.Filesystem states the usage of the
+	//     device that holds the root under the same condition, because the device
+	//     holds the subtrees the run could not reach. (Plan.8, I1, I3, I4)
 	//   - Totals.Types holds at most 6 file types ordered by Files descending,
 	//     ties by Ext, with Share the rounded percentage of Totals.Files; an
 	//     empty census gives no types. Totals.TypesMore counts the types that
@@ -317,23 +323,24 @@ func (t *tree) entry(r row, s scan.Snapshot, m Measured) Entry {
 		Color: color(topLevel(r.path)),
 	}
 	if !r.dir {
-		e.Files = 0
+		e.Files, e.Exact = 0, true
 		if lines, ok := m.Lines[r.path]; ok {
 			e.Lines = lines
 		}
-		return e
-	}
-	if !exact {
 		return e
 	}
 	dir := t.dirs[r.path]
 	e.Kids = make([]Item, 0, len(dir.Kids))
 	for _, kid := range dir.Kids {
 		item := Item{Name: kid.Name, Dir: kid.Dir, Bytes: kid.Bytes, Files: kid.Files, Lines: -1}
-		if !kid.Dir {
-			if lines, ok := m.Lines[join(r.path, kid.Name)]; ok {
-				item.Lines = lines
-			}
+		if kid.Dir {
+			item.Exact = exactPath(s, join(r.path, kid.Name))
+			e.Kids = append(e.Kids, item)
+			continue
+		}
+		item.Exact = true
+		if lines, ok := m.Lines[join(r.path, kid.Name)]; ok {
+			item.Lines = lines
 		}
 		e.Kids = append(e.Kids, item)
 	}
@@ -374,7 +381,8 @@ func totals(s scan.Snapshot, m Measured) Totals {
 	if stopped == scan.StopNone && m.Stopped != scan.StopNone {
 		stopped, phase = m.Stopped, scan.PhaseCount
 	}
-	complete := s.Stopped == scan.StopNone && s.UnreadableDirs == 0 && s.OtherFilesystems == 0
+	complete := s.Stopped == scan.StopNone && s.UnreadableDirs == 0 &&
+		s.OtherFilesystems == 0 && s.Unreadable == 0
 	device := s.Filesystem
 	if complete {
 		device = nil

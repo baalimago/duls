@@ -62,6 +62,28 @@ func wide(t *testing.T, dirs, files int) string {
 	return root
 }
 
+// nest writes dirs directories of sub subdirectories of files files: enough
+// depth that a styled run draws rows whose subtrees are still open.
+func nest(t *testing.T, dirs, sub, files int) string {
+	t.Helper()
+	root := t.TempDir()
+	for d := range dirs {
+		for s := range sub {
+			dir := filepath.Join(root, "d"+strconv.Itoa(d), "s"+strconv.Itoa(s))
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for f := range files {
+				path := filepath.Join(dir, "f"+strconv.Itoa(f)+".png")
+				if err := os.WriteFile(path, []byte("p"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+	}
+	return root
+}
+
 // cacheRoot is an isolated store root that never sits under a fixture
 // (README I10).
 func cacheRoot(t *testing.T) string {

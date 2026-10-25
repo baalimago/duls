@@ -147,9 +147,10 @@ the same commit.
   1. A failure never prints a partial view. A permission refusal below the
   root is not a failure: the run declares the open subtree and exits 0.
 - **The frame never outlives the answer.** A frame is written only to a
-  terminal, at the first observation, at most once per 100 ms, and is erased
-  before the first byte of the final view. Its geometry follows the rows the
-  run can prove, and the erase clears exactly the lines it drew.
+  terminal, at the first observation, at most once per 16 ms and never more
+  often than one frame's drawing cost in five allows, and is erased before the
+  first byte of the final view. Its geometry follows the rows the run holds at
+  that observation, and the erase clears exactly the lines it drew.
 - **The bounds are constants.** At most 8 rows and at most 6 children per row.
   No flag changes them.
 - **Errors are returned, never logged, and never panic.** The one exception is

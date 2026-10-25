@@ -116,15 +116,19 @@ func TestPromotionFillsSlots(t *testing.T) {
 
 func TestCutWalkIsMarked(t *testing.T) {
 	dirs := []scan.Dir{
-		{Path: "", Files: 2, Bytes: 100, Kids: []scan.Child{
-			{Name: "a", Dir: true, Files: 1, Bytes: 60},
-			{Name: "b", Dir: true, Files: 1, Bytes: 40},
+		{Path: "", Files: 4, Bytes: 170, Kids: []scan.Child{
+			{Name: "a", Dir: true, Files: 1, Bytes: 100},
+			{Name: "b", Dir: true, Files: 3, Bytes: 70},
 		}},
-		{Path: "a", Files: 1, Bytes: 60},
-		{Path: "b", Files: 1, Bytes: 40, Kids: []scan.Child{{Name: "x", Bytes: 40, Lines: -1}}},
+		{Path: "a", Files: 1, Bytes: 100},
+		{Path: "b", Files: 3, Bytes: 70, Kids: []scan.Child{
+			{Name: "x", Bytes: 40, Lines: -1},
+			{Name: "c", Dir: true, Files: 2, Bytes: 30},
+		}},
+		{Path: "b/c", Files: 2, Bytes: 30},
 	}
-	snap := scan.Snapshot{Dirs: dirs, Files: 2, Bytes: 100, Stopped: scan.StopDeadline, Frontier: []string{"b"}}
-	measured := plan.Measured{Lines: map[string]int64{"a/x": 5}, Total: 5, Measured: 1, Unknown: 1}
+	snap := scan.Snapshot{Dirs: dirs, Files: 4, Bytes: 170, Stopped: scan.StopDeadline, Frontier: []string{"b/c/d"}}
+	measured := plan.Measured{Lines: map[string]int64{"b/x": 5}, Total: 5, Measured: 1, Unknown: 1}
 	view := plan.New().Plan(snap, measured)
 	if view.Totals.BytesExact {
 		t.Fatal("a cut walk reports exact bytes")
@@ -135,8 +139,15 @@ func TestCutWalkIsMarked(t *testing.T) {
 	if view.Entries[1].Exact {
 		t.Fatal("the cut row is marked exact")
 	}
-	if len(view.Entries[1].Kids) != 0 {
-		t.Fatalf("cut row shows %d kids, want none", len(view.Entries[1].Kids))
+	kids := view.Entries[1].Kids
+	if len(kids) != 2 {
+		t.Fatalf("cut row shows %d kids, want the 2 children it proved", len(kids))
+	}
+	if kids[0].Name != "x" || kids[0].Lines != 5 || !kids[0].Exact {
+		t.Fatalf("first kid = %+v, want the file it measured exactly", kids[0])
+	}
+	if kids[1].Name != "c" || kids[1].Exact {
+		t.Fatalf("second kid = %+v, want the unfinished subtree marked a lower bound", kids[1])
 	}
 	if view.Totals.Lines != 5 || view.Totals.LinesExact {
 		t.Fatalf("lines = %d exact=%v, want 5 and inexact", view.Totals.Lines, view.Totals.LinesExact)
@@ -165,6 +176,48 @@ func TestCutCountIsMarked(t *testing.T) {
 	}
 	if !totals.BytesExact {
 		t.Fatal("a cut count calls the walk's bytes a lower bound")
+	}
+}
+
+// TestFileRowIsExactWhileTheRootIsListing proves a file row states its own bytes,
+// so an unfinished root does not mark it a lower bound: a subtree can be open, a
+// file cannot (Plan.8, architecture/plan.md).
+func TestFileRowIsExactWhileTheRootIsListing(t *testing.T) {
+	snap := scan.Snapshot{
+		Dirs: []scan.Dir{{
+			Path: "", Files: 1, Bytes: 60,
+			Kids: []scan.Child{{Name: "big.bin", Bytes: 60, Lines: -1}},
+		}},
+		Files: 1, Bytes: 60, Stopped: scan.StopDeadline, Frontier: []string{""},
+	}
+	view := plan.New().Plan(snap, plan.Measured{})
+	if len(view.Entries) != 1 || view.Entries[0].Kind != plan.File {
+		t.Fatalf("rows = %+v, want the file row of the root", view.Entries)
+	}
+	if !view.Entries[0].Exact {
+		t.Fatal("the file row is marked a lower bound, want its own exact bytes")
+	}
+}
+
+// TestRefusedSizeMarksTheBytes proves a file whose size the walk could not read
+// leaves the byte total a lower bound: the run counted a file it cannot weigh
+// (Plan.8, architecture/plan.md).
+func TestRefusedSizeMarksTheBytes(t *testing.T) {
+	snap := scan.Snapshot{
+		Dirs:       []scan.Dir{{Path: "", Files: 1}},
+		Files:      1,
+		Unreadable: 1,
+		Filesystem: &scan.Filesystem{Total: 100, Used: 40, Avail: 60},
+	}
+	view := plan.New().Plan(snap, plan.Measured{})
+	if view.Totals.BytesExact {
+		t.Fatal("bytes are exact, want a lower bound while a file's size is refused")
+	}
+	if view.Totals.Filesystem == nil {
+		t.Fatal("no device, want the device beside a lower-bound total")
+	}
+	if view.Totals.Unreadable != 1 {
+		t.Fatalf("unreadable = %d, want the refused file", view.Totals.Unreadable)
 	}
 }
 

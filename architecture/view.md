@@ -50,8 +50,10 @@ count in the peek column.
 
 A value the run cannot prove carries a mark: `~` before a lower bound and `?`
 where the value is unknown. A file the run did not measure shows `?`; it never
-shows a zero. A refused directory proves nothing about its subtree, so the file
-count, the byte total and every row above it are lower bounds.
+shows a zero. A directory child in the peek column carries `~` before its file
+count when the walk has not finished its subtree. A refused directory proves
+nothing about its subtree, so the file count, the byte total and every row above
+it are lower bounds.
 
 Sizes use SI units with one decimal and the `999_500` knee of the next unit.
 With `--bytes` the renderer prints exact integers and no unit scaling.

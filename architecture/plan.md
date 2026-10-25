@@ -11,7 +11,7 @@ ordered, or how shares and the peek column are computed.
 
 | File | Purpose |
 |------|---------|
-| `internal/plan/plan.go` | `Planner`, `Plan`, `View`, `Entry`, `Item`, `Totals`, `Measured`, `Kind`, `Entries`, `Children`, `Palette`, `tree`, `row`, `group`, `totals`. |
+| `internal/plan/plan.go` | `Planner`, `Plan`, `View`, `Entry`, `Item`, `Totals`, `TypeShare`, `Measured`, `Kind`, `Entries`, `Children`, `Palette`, `tree`, `row`, `group`, `totals`. |
 | `internal/scan/walk.go` | `Snapshot`, `Dir`, `Child`, `Stop`: the facts the planner reads. |
 | `internal/measure/measure.go` | `Result`, which the caller maps to `Measured`. |
 | `internal/app/run.go` | The one caller: it maps `Snapshot` and `Result` to `Plan`. |
@@ -68,18 +68,19 @@ A child's line count comes from `Measured.Lines`, which the count fills only
 for the files the peek column can show. A child the run did not measure
 carries `-1` and renders `?`.
 
-A subtree that the walk did not finish is not exact: its row shows no peek
-children at all, and the row's bytes are a lower bound. A folded row is a lower
-bound when one of the entries it stands for is.
+A subtree that the walk did not finish is not exact: its row lists the children
+the walk has proved so far, and a directory child whose file count is a lower
+bound carries `Exact` false. The row's bytes are a lower bound too. A folded row
+is a lower bound when one of the entries it stands for is.
 
 ## Totals
 
 `Totals.Files`, `Bytes` and `Lines` come from the snapshot and the count.
 `BytesExact` is false when the walk stopped, a refused directory left a
-subtree open, or another filesystem was left unentered: a refused file keeps
-its byte and file facts. `LinesExact` is false when any file is unknown or
-unreadable, when either phase stopped, or when a directory was refused or a
-filesystem was left unentered.
+subtree open, another filesystem was left unentered, or the walk could not read
+a file's size: the byte total then omits a file the run counted. `LinesExact` is
+false when any file is unknown or unreadable, when either phase stopped, or when
+a directory was refused or a filesystem was left unentered.
 
 `Totals.Stopped` and `Totals.StoppedPhase` name the phase that stopped: the
 walk when the snapshot stopped, the count when only the count did. A refusal
@@ -103,9 +104,14 @@ census gives no types, so a view with no files has no type line.
 
 ## Gotchas
 
-- A file row reports `Files == 0`; its bytes are its own. A directory row
-  reports its subtree's files, bytes and share.
+- A file row reports `Files == 0`; its bytes are its own, so it is always exact.
+  A directory row reports its subtree's files, bytes and share, and is a lower
+  bound while its subtree is open.
+- A share never exceeds 100 %: the walk folds the files it counted in an
+  unfinished subtree into its ancestors, so no row outweighs the totals.
 - `Entry.Lines` is `-1` unless the count proved a value for that exact path.
+- `Item.Exact` is false only for a directory child of an unfinished subtree: a
+  file item states its own bytes, so it is always exact.
 - Promotion competes for the same 8 slots as the top level: a promoted row can
   push a smaller top-level entry into the folded row.
 - `Color` derives from the top-level ancestor's path, not from the row order,

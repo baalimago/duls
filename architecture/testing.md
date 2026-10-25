@@ -14,9 +14,10 @@ Read this when: adding a feature, writing a scenario, or changing the gate.
 | `internal/plan/plan_test.go` | The rows: folding, ordering, shares, promotion, marks, determinism, colours. |
 | `internal/view/view_test.go` | The lines: the strip, the columns, width, marks, the footer. |
 | `internal/agent/agent_test.go` | The document: the keys, the null values, the accounting, the folded row, the unknown kind. |
-| `internal/frame/frame_test.go` | The live outline: trigger, interval, repaint, geometry, erase. |
+| `internal/frame/frame_test.go` | The live outline: trigger, interval, cost stretch, repaint, geometry, erase. |
 | `internal/cache/cache_test.go` | The store: witness, trust window, torn shards, cap, overlap, mailbox, flush budget. |
 | `internal/app/run_test.go` | The composition: a real directory, refusals, cancellation, the write failure, the visual and agent forms. |
+| `internal/app/live_test.go` | The frame's lines: the tree an observation carries, and no footer. |
 | `internal/app/options_test.go` | The environment lookup, stream fallbacks, seams. |
 | `internal/cli/cli_test.go` | The router: help, version, bad flags, missing directory, streams, cancellation. |
 | `cmd/duls/duls_test.go` | Parsing: flags after the path, `--`, one path, the flag values. |
@@ -80,9 +81,11 @@ tag and injects the tag into `internal/app.Version`.
 - The scenario binary is built by `go build`, not by the test binary, so its
   output has no coverage instrument. Coverage comes from the unit tests; the
   scenarios protect behavior.
-- The frame scenario needs a run with more than one directory and enough files
-  to publish progress, so it writes a tree of 20000 files. It is the slowest
-  scenario and it runs without `t.Parallel`.
+- The frame scenarios need a run with more than one directory and enough
+  files to publish progress, so they write a tree of 20000 files and a deeper
+  one of 24000. They are the slowest scenarios and they run without
+  `t.Parallel`. The deep one proves a frame draws a row marked `~` while the
+  walk runs; without the walk's live tree no frame draws a row at all.
 - The store scenario needs a settled witness, so it waits out the 2 s settle
   window before its first run. Both store scenarios sleep in parallel.
 - A scenario that compares two or more views disables the store with `-r 0`.

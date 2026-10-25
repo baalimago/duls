@@ -30,7 +30,10 @@ type Rasterizer interface {
 	//     emits no escape sequence. (Publish.1, I5)
 	//   - The first frame appears no earlier than Trigger after New, and never
 	//     before the first observation. (Publish.2, I12)
-	//   - At most one frame is written per directory and per Interval. (Publish.3, I12, D29)
+	//   - At most one frame is written per Interval, never before the first
+	//     observation, and never sooner than five times the cost of the last
+	//     frame, so the frames that follow take at most a fifth of the run's
+	//     time. (Publish.3, I12, D29)
 	//   - A frame is written only when its lines differ from the frame on screen;
 	//     a line that is identical is passed over with a cursor move, and a block
 	//     whose height changed is erased and drawn whole. (Publish.4, I12)
@@ -62,18 +65,23 @@ func New(opts Options) Rasterizer {
 	return &raster{opts: opts, start: opts.Now()}
 }
 
+// frameDuty makes the interval at least this many times the cost of the last
+// frame, so a frame spends at most a fifth of the run on drawing.
+const frameDuty = 5
+
 type raster struct {
 	opts Options
 
-	mu      sync.Mutex
-	start   time.Time
-	lastAt  time.Time
-	last    []string
-	lastObs scan.Progress
-	haveObs bool
-	drawn   bool
-	erased  bool
-	failed  bool
+	mu       sync.Mutex
+	start    time.Time
+	lastAt   time.Time
+	lastCost time.Duration
+	last     []string
+	lastObs  scan.Progress
+	haveObs  bool
+	drawn    bool
+	erased   bool
+	failed   bool
 }
 
 func (r *raster) Publish(p scan.Progress) {
@@ -85,9 +93,11 @@ func (r *raster) Publish(p scan.Progress) {
 	if r.haveObs && !grows(r.lastObs, p) {
 		return
 	}
-	if !r.due(p) {
+	if !r.due() {
 		return
 	}
+	start := r.opts.Now()
+	defer func() { r.lastCost = r.opts.Now().Sub(start) }()
 	lines := r.opts.Lines(p)
 	if len(lines) == 0 {
 		r.accept(p, nil)
@@ -125,12 +135,12 @@ func (r *raster) accept(p scan.Progress, lines []string) {
 	r.drawn = len(lines) > 0
 }
 
-func (r *raster) due(p scan.Progress) bool {
+func (r *raster) due() bool {
 	now := r.opts.Now()
 	if !r.drawn {
 		return now.Sub(r.start) >= r.opts.Trigger
 	}
-	return p.Dirs > r.lastObs.Dirs && now.Sub(r.lastAt) >= r.opts.Interval
+	return now.Sub(r.lastAt) >= max(r.opts.Interval, frameDuty*r.lastCost)
 }
 
 func (r *raster) write(s string) error {
