@@ -1,6 +1,6 @@
 # `duls` - The filetree inspector
 
-Test coverage: 90.4% 😍👌
+Test coverage: 90.5% 😍👌
 
 <div align="center">
   <img src="img/duls-demo.gif" alt="Hyper-optimized filetree inspector. Focusing on whats important, within when you want it.">
