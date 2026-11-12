@@ -95,6 +95,10 @@ Every goroutine the count started has exited before it returns.
 
 - The count takes its own witness at dispatch. The walk records a witness, but
   a file can change between the phases, so the walk's value proves nothing.
+- A hand-written byte loop over a chunk is the wrong way to find LF:
+  `bytes.Count` hands a one-byte needle to the runtime's vector count, which
+  reads an order of magnitude faster on a warm page cache. The count is CPU
+  bound on a fast device, so this loop is what the run waits on.
 - `Unknown` includes `Unreadable`; the footer prints both counts.
 - A directory that cannot be read is a failure, not an unknown: the count
   cannot state a file total without it.

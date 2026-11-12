@@ -4,6 +4,7 @@
 package measure
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -468,6 +469,10 @@ func (c counter) measure(ctx context.Context, j job, opts Options) outcome {
 
 var errAborted = errors.New("count aborted")
 
+// newline is the searched byte; bytes.Count hands one-byte needles to the
+// runtime's vector count, which beats a byte loop by an order of magnitude.
+var newline = []byte{'\n'}
+
 type lineCounter struct {
 	newlines int64
 	last     byte
@@ -479,11 +484,7 @@ func (c *lineCounter) add(chunk []byte) {
 		return
 	}
 	c.size += int64(len(chunk))
-	for _, b := range chunk {
-		if b == '\n' {
-			c.newlines++
-		}
-	}
+	c.newlines += int64(bytes.Count(chunk, newline))
 	c.last = chunk[len(chunk)-1]
 }
 
