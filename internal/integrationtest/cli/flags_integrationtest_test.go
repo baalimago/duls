@@ -8,19 +8,30 @@ import (
 )
 
 // TestScenarioBadFlags proves every rejected command line is one error line and
-// exit 1, with no view.
+// exit 1, with no view, and that a flag-package or exclude failure carries the
+// help hint (architecture/cli.md).
 func TestScenarioBadFlags(t *testing.T) {
 	t.Parallel()
 	for _, tt := range []struct {
 		name string
 		args []string
 		want string
+		hint bool
 	}{
-		{"an unknown flag", []string{"--nope"}, "flag provided but not defined"},
-		{"an unparsable duration", []string{"-t", "wat"}, "invalid value"},
-		{"a negative refresh", []string{"-r", "-1s"}, "refresh must not be negative"},
-		{"a mode above three", []string{"-m", "9"}, "mode must be 0, 1, 2 or 3"},
-		{"two paths", []string{"one", "two"}, "at most one path"},
+		{"an unknown flag", []string{"--nope"}, "flag provided but not defined", true},
+		{"an unparsable duration", []string{"-t", "wat"}, "invalid value", true},
+		{"a negative refresh", []string{"-r", "-1s"}, "refresh must not be negative", false},
+		{"a mode above three", []string{"-m", "9"}, "mode must be 0, 1, 2 or 3", false},
+		{"two paths", []string{"one", "two"}, "at most one path", false},
+		{"a pattern ending in a slash", []string{"--exclude", "src/"}, "drop the trailing '/'", true},
+		{"an empty pattern", []string{"--exclude", ""}, `exclude pattern "" is empty`, true},
+		{"a dot segment", []string{"--exclude", "./src"}, "drop its '.' and '..' segments", true},
+		{"a doubled slash", []string{"--exclude", "a//b"}, "use a single '/'", true},
+		{"a bracket that runs off the end", []string{"--exclude", "[a-"}, "its bracket runs off the end", true},
+		{"a bracket that holds only a slash", []string{"--exclude", "x[/]"}, "drop the trailing '/'", true},
+		{"a trailing backslash", []string{"--exclude", `a\`}, "escape the trailing", true},
+		{"an unknown character class", []string{"--exclude", "[[:nope:]]"}, "unknown character class [:nope:]", true},
+		{"a missing exclude file", []string{"-X", "nope.txt"}, "read the exclude file nope.txt", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
@@ -33,6 +44,9 @@ func TestScenarioBadFlags(t *testing.T) {
 			}
 			if !strings.Contains(res.Stderr, tt.want) {
 				t.Fatalf("stderr = %q, want it to name %q", res.Stderr, tt.want)
+			}
+			if hint := strings.Contains(res.Stderr, "run 'duls -h' for its flags"); hint != tt.hint {
+				t.Fatalf("stderr = %q, hint %t; want hint %t", res.Stderr, hint, tt.hint)
 			}
 		})
 	}

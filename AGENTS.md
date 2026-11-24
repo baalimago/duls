@@ -35,8 +35,9 @@ initial pull materializes a notebook into an empty directory. It walks one
 directory without reading content, counts the lines of the files the view
 can show, builds an outline of the largest entries, and answers a colour
 terminal with the visual view and a pipe with a JSON document. It has no
-server, no network, and no configuration file. The only state beyond the
-directory it reads is a cache of measured line counts.
+server, no network, and no configuration file of its own; it reads the
+pattern files `-X` names. The only state beyond the directory it reads is a
+cache of measured line counts.
 
 The contract is split by concern under [`architecture/`](architecture/README.md).
 Two forms share one set of facts. **Visual** is what a person at a colour
@@ -57,7 +58,7 @@ document, and `-json` always does.
                        |
                        v
 +--------------------------------------------------------------+
-|  cmd/duls: Command, Parse, Run, Help                         |
+|  cmd/duls: Command, Parse, Run, Help; scan.NewExclude        |
 +----------------------+---------------------------------------+
                        |
                        v
@@ -93,8 +94,10 @@ stdout               the answer (visual view or JSON document), help, or the
 stderr               exactly one "error: <message>" line on failure
 working directory    the default root; a relative path resolves against it
 directory            regular files only; entries never a symlink; hidden
-                     skipped unless --all; a root named through a symlink
-                     is resolved
+                     skipped unless --all; entries an exclude pattern
+                     matches left out and counted; a root named through a
+                     symlink is resolved
+pattern files        -X FILE, read once during Parse; never written
 ```
 
 ### Package Map
@@ -112,7 +115,7 @@ duls/
 |   |-- frame/               New, Rasterizer, Publish, Erase
 |   |-- measure/             Counter, Count, Plan, Options, Result, Fact
 |   |-- plan/                Planner, Plan, View, Entry, Totals, Measured
-|   |-- scan/                Walker, Walk, Snapshot, Dir, Sink, Preset
+|   |-- scan/                Walker, Walk, Snapshot, Dir, Sink, Preset, Exclude
 |   |-- tui/                 Form, DetectForm, Style, DepthOf, IsTerminal, Width
 |   |-- view/                Renderer, Lines, Options
 |   `-- integrationtest/
@@ -125,21 +128,24 @@ duls/
 
 Interfaces belong to the package that consumes them. `internal/cli` owns its
 `command` view (three calls). `internal/app` owns the `Options` stream,
-environment, form, style, and width seams. `internal/measure` consumes
-`scan.Dir` and offers facts to `measure.Measured`, which `internal/cache`
-implements. No package exists only to forward a function.
+environment, form, style, and width seams. `cmd/duls` compiles `scan.Exclude`
+for the request. `internal/measure` consumes `scan.Dir` and `scan.Exclude` and
+offers facts to `measure.Measured`, which `internal/cache` implements. No package exists only to forward a function.
 
 ### Event Flow
 
 ```text
 Public surface:  duls [flags] [path]
-                 -a|--all  -bytes  -json  -h|--help  -v|--version
+                 -a|--all  --all-types  -bytes  --exclude p  -X|--exclude-from f
+                 -json  -m|--mode n  -r|--refresh d  -t|--timeout d
+                 -h|--help  -v|--version
 
 cli.Run
   withProcessEnv      nil Env becomes os.Environ()
   router.run
     command.Parse       flag runs interleaved with positionals; "--" ends flags
-                        at most one positional, the path
+                        at most one positional, the path; reads the -X files
+                        and compiles every exclude pattern (scan.NewExclude)
     command.Run         --version -> "duls <version>\n"
                         else app.Run
 
@@ -152,8 +158,9 @@ app.Run
   frame.New            enabled only for the visual form
   cache.Open           disabled when the store cannot or must not exist
   scan.Walk            phase 1: readdir and lstat only; hidden skipped unless
-                        --all; regular files only; another device left open;
-                        kids, totals, frontier
+                        --all; excluded entries left out and counted; regular
+                        files only; another device left open; kids, totals,
+                        frontier
   scan.FilesystemOf    the root's device: total, used and available bytes,
                         absent when the platform cannot report it
   measure.Count        phase 2: fixed order, policy, witness, proof
@@ -176,6 +183,8 @@ os.Stdout, Stderr: os.Stderr}))`. The router owns the command line:
 2. **Parse.** `cmd/duls` parses flags and positionals in one pass that
    tolerates flags after the path and honours `--`. `-h` and `--help` become
    `flag.ErrHelp`; the router prints the help text on stdout and exits 0.
+   `Parse` then reads each `-X` file and compiles every exclude pattern, so a
+   pattern no path can match fails before the walk starts.
 3. **Run.** `--version` prints `duls <version>` and exits 0. Otherwise
    `app.Run` resolves, inspects, scans, builds, and writes the answer.
 4. **Report a failure.** Exactly one line on stderr, `error: <message>`, and
@@ -241,7 +250,8 @@ architecture, and a change that touches one updates the matching doc under
   the output. A refused directory leaves its subtree open, so every total above
   it is a lower bound and the footer counts it.
 - The footer and `accounting` are facts about this run: the phase that
-  stopped, the limit it obeyed, the counts, and the cache token. Never elapsed
+  stopped, the limit it obeyed, the counts, the exclusion patterns it obeyed,
+  and the cache token. Never elapsed
   time, never an age. A run whose totals are lower bounds also states the root's
   device, the figure `df` prints, because the device allocates what the walk
   could not reach; an exact run states none.
@@ -253,7 +263,9 @@ architecture, and a change that touches one updates the matching doc under
   blank line, the boxes, and SI units over the same facts.
 - The walk never follows a symlink below the root and never opens a special
   file. A root named through a symlink is resolved. Hidden entries are
-  skipped unless `--all` is set. A directory on another device than the
+  skipped unless `--all` is set. Entries an exclude pattern matches are left
+  out of both phases and counted; an exclusion is the user's choice, so it
+  never lowers a total to a bound. A directory on another device than the
   root's is not entered, and the footer counts it.
 - The bounds are constants: at most 8 entries, at most 6 largest children per
   entry. No flag changes them.
@@ -270,8 +282,8 @@ architecture, and a change that touches one updates the matching doc under
 - A function that returns an error never panics, and a failure is returned,
   never logged.
 - The MCP, storage, network, and configuration surfaces do not exist here.
-  duls reads one directory and writes one view; a feature that needs more
-  belongs in another tool.
+  duls reads one directory, and the pattern files `-X` names, and writes one
+  view; a feature that needs more belongs in another tool.
 
 **Exit codes.** The categories are stable API: 0 for a printed view, a declared
 partial view, help, and version; 1 for every failure. Error text can change.

@@ -498,3 +498,29 @@ func TestFooterWrapsAtNarrowWidths(t *testing.T) {
 		t.Fatalf("footer = %q, want the whole footer on one line", footer)
 	}
 }
+
+// TestFooterStatesExclusions proves the footer counts the excluded entries
+// whenever a pattern was given, zero included, after the other-filesystem
+// count and before the device usage (architecture/view.md).
+func TestFooterStatesExclusions(t *testing.T) {
+	v := fullView()
+	v.Totals.Measured = v.Totals.Files
+	v.Totals.OtherFilesystems = 2
+	v.Totals.Excluded = 3
+	v.Totals.Exclude = []string{"node_modules"}
+	v.Totals.Filesystem = &scan.Filesystem{Total: 2_000_000, Used: 1_000_000, Avail: 1_000_000}
+	lines := body(v, view.Options{Width: 150})
+	if footer, want := strings.TrimSpace(lines[len(lines)-1]), "other filesystems 2 · excluded 3 · filesystem 1.0 MB used of 2.0 MB"; footer != want {
+		t.Fatalf("footer = %q, want %q", footer, want)
+	}
+	none := fullView()
+	none.Totals.Measured = none.Totals.Files
+	none.Totals.Exclude = []string{"nothing"}
+	lines = body(none, view.Options{Width: 150})
+	if footer := strings.TrimSpace(lines[len(lines)-1]); footer != "excluded 0" {
+		t.Fatalf("footer = %q, want the zero count of a pattern that matched nothing", footer)
+	}
+	if lines := body(fullView(), view.Options{Width: 150}); strings.Contains(strings.Join(lines, "\n"), "excluded") {
+		t.Fatal("a view without patterns states an exclusion count")
+	}
+}

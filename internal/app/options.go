@@ -3,6 +3,7 @@
 package app
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -34,6 +35,21 @@ func (o Options) Out() io.Writer {
 		return o.Stdout
 	}
 	return os.Stdout
+}
+
+// Abs resolves path against Cwd, or the process's working directory when unset.
+func (o Options) Abs(path string) (string, error) {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path), nil
+	}
+	cwd := o.Cwd
+	if cwd == "" {
+		var err error
+		if cwd, err = os.Getwd(); err != nil {
+			return "", fmt.Errorf("duls: resolve the working directory: %w", err)
+		}
+	}
+	return filepath.Join(cwd, path), nil
 }
 
 // ErrOut is the diagnostic stream: Stderr, or the process stderr when unset.

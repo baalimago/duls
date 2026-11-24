@@ -10,6 +10,8 @@ Read this when: adding a feature, writing a scenario, or changing the gate.
 |------|---------|
 | `Makefile` | `lint`, `test`, `qa`: the one Go test command. |
 | `internal/scan/walk_test.go` | Phase 1: schedule independence, DirSeq, no open, deadline, cancel, permission, joins, kids, presets, progress. |
+| `internal/scan/exclude_test.go` | Exclude patterns: refusal with its index, the path-and-suffix rule, the zero value, walk counting and check order, and a benchmark. |
+| `internal/scan/exclude_internal_test.go` | The fnmatch table recorded from glibc, the POSIX classes, each fast path against every suffix, and every refusal reason. |
 | `internal/measure/measure_test.go` | Phase 2: dispatch order, policy, proof, accounting, deadline, progress, the store seam. |
 | `internal/plan/plan_test.go` | The rows: folding, ordering, shares, promotion, marks, determinism, colours. |
 | `internal/view/view_test.go` | The lines: the strip, the columns, width, marks, the footer. |
@@ -20,11 +22,11 @@ Read this when: adding a feature, writing a scenario, or changing the gate.
 | `internal/app/live_test.go` | The frame's lines: the tree an observation carries, and no footer. |
 | `internal/app/options_test.go` | The environment lookup, stream fallbacks, seams. |
 | `internal/cli/cli_test.go` | The router: help, version, bad flags, missing directory, streams, cancellation. |
-| `cmd/duls/duls_test.go` | Parsing: flags after the path, `--`, one path, the flag values. |
+| `cmd/duls/duls_test.go` | Parsing: flags after the path, `--`, one path, the flag values, the `-X` reader, and exclude failures. |
 | `internal/tui/style_test.go` | The palette, the depth, and the form gate. |
 | `internal/tui/style_pty_linux_test.go` | The terminal gate and width on a pseudo-terminal. |
 | `internal/integrationtest/itest` | The black-box toolkit: build once, run the real binary, the PTY runner. |
-| `internal/integrationtest/cli` | The scenarios: the visual view, the agent document, flags, paths, the deadline, the store, the frame. |
+| `internal/integrationtest/cli` | The scenarios: the visual view, the agent document, flags, exclude patterns, paths, the deadline, the store, the frame. |
 
 ## Layers
 

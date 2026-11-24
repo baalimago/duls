@@ -93,8 +93,12 @@ reach, so a reader that sees the device's used bytes beside a lower-bound total
 can see how much is missing. An exact run states no device. A run whose platform
 cannot report the device states none either.
 
+`Totals.Excluded` and `Totals.Exclude` carry the snapshot's exclusion count
+and patterns. An exclusion is the user's choice, not a gap, so it never makes
+`BytesExact` or `LinesExact` false and never states the device.
+
 `Totals.Skipped`, `Unknown`, `Unreadable`, `UnreadableDirs`,
-`OtherFilesystems` and `Reused` are the footer's counts. The planner prints
+`OtherFilesystems`, `Excluded` and `Reused` are the footer's counts. The planner prints
 nothing; the renderer decides the text.
 
 `Totals.Types` holds at most 6 file types, largest by file count first, ties by

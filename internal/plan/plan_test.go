@@ -419,3 +419,19 @@ func TestTypeShares(t *testing.T) {
 		t.Fatalf("an empty census gave %v and %d more", empty.Types, empty.TypesMore)
 	}
 }
+
+// TestExclusionsKeepTheTotalsExact proves an exclusion is carried as a count
+// and its patterns, and never lowers a total to a bound (architecture/plan.md).
+func TestExclusionsKeepTheTotalsExact(t *testing.T) {
+	snap := scan.Snapshot{
+		Files: 1, Bytes: 1, Excluded: 3, Exclude: []string{"node_modules"},
+		Filesystem: &scan.Filesystem{Total: 1000, Used: 400, Avail: 500},
+	}
+	totals := plan.New().Plan(snap, plan.Measured{Measured: 1}).Totals
+	if totals.Excluded != 3 || !reflect.DeepEqual(totals.Exclude, []string{"node_modules"}) {
+		t.Fatalf("totals = %+v, want the exclusion count and its pattern", totals)
+	}
+	if !totals.BytesExact || !totals.LinesExact || totals.Filesystem != nil {
+		t.Fatalf("totals = %+v, want exact totals and no device usage", totals)
+	}
+}

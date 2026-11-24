@@ -2,13 +2,17 @@ package duls
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/baalimago/duls/internal/app"
+	"github.com/baalimago/duls/internal/scan"
 )
 
 func TestSetupResolvesOneOptionalPath(t *testing.T) {
@@ -49,7 +53,7 @@ func TestSetupResolvesOneOptionalPath(t *testing.T) {
 func TestHelpNamesTheCommandAndFlags(t *testing.T) {
 	t.Parallel()
 	help := Command(app.Options{}).Help()
-	for _, want := range []string{"duls - the size view", "Usage:", "duls [flags] [path]", "--all", "--version", "-json"} {
+	for _, want := range []string{"duls - the size view", "Usage:", "duls [flags] [path]", "--all", "--version", "-json", "--exclude p", "-X, --exclude-from f"} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("help is missing %q:\n%s", want, help)
 		}
@@ -97,7 +101,7 @@ func TestParseReadsEveryFlag(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	want := app.Request{Path: "notes", All: true, Types: true, Bytes: true, JSON: true, Mode: 3, Refresh: 0, Timeout: 5 * time.Second}
-	if got := c.Request(); got != want {
+	if got := c.Request(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Request = %+v, want %+v", got, want)
 	}
 }
@@ -109,7 +113,7 @@ func TestParseDefaults(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 	want := app.Request{Mode: 1, Refresh: 15 * time.Minute, Timeout: 2 * time.Second}
-	if got := c.Request(); got != want {
+	if got := c.Request(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Request = %+v, want %+v", got, want)
 	}
 }
@@ -133,6 +137,53 @@ func TestParseRejectsBadValues(t *testing.T) {
 			err := Command(app.Options{}).Parse(tt.args)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("Parse error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseCompilesExcludesInCommandLineOrder(t *testing.T) {
+	t.Parallel()
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "pats.txt"), []byte("c\r\r\n\n d\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := Command(app.Options{Cwd: cwd})
+	if err := c.Parse([]string{"--exclude", "a", "-X", "pats.txt", "--exclude=b"}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if got, want := c.Request().Exclude.Patterns(), []string{"a", "c", " d", "b"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("patterns = %q, want %q", got, want)
+	}
+	if c.Request().Exclude.Match("/x/a") != scan.Excluded {
+		t.Fatal("the compiled patterns do not exclude /x/a")
+	}
+}
+
+func TestParseReportsExcludeFailures(t *testing.T) {
+	t.Parallel()
+	cwd := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cwd, "pats.txt"), []byte("ok\n\nsrc/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+		is   error
+	}{
+		{"a refused flag pattern", []string{"--exclude", "a//b"}, `flag: scan: exclude pattern "a//b" can never match a path; use a single '/'; run 'duls -h' for its flags`, nil},
+		{"a refused file pattern names its line", []string{"-X", "pats.txt"}, `flag: pats.txt:3: scan: exclude pattern "src/"`, nil},
+		{"a missing file keeps its cause", []string{"-X", "missing.txt"}, "flag: read the exclude file missing.txt: ", fs.ErrNotExist},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := Command(app.Options{Cwd: cwd}).Parse(tt.args)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Parse error = %v, want %q", err, tt.want)
+			}
+			if tt.is != nil && !errors.Is(err, tt.is) {
+				t.Fatalf("Parse error = %v, want it to wrap %v", err, tt.is)
 			}
 		})
 	}

@@ -17,7 +17,8 @@ view's peek column can show, or how progress reaches the frame.
 | `internal/scan/filesystem.go` | `Filesystem`: the device's total, used and available bytes. |
 | `internal/scan/filesystem_linux.go` | `FilesystemOf`: `statfs` on the root. |
 | `internal/scan/filesystem_other.go` | The fallback that reports no device usage. |
-| `internal/app/run.go` | The one caller: `Preset`, `Walk`, `FilesystemOf`, and the sink it passes. |
+| `internal/scan/exclude.go` | `Exclude`, `NewExclude`, `Verdict`, `PatternError`: the exclude patterns, compiled once under glibc `fnmatch(pattern, path, 0)`. |
+| `internal/app/run.go` | The walk's one caller: `Preset`, `Walk`, `FilesystemOf`, and the sink it passes. `cmd/duls` calls `NewExclude`, and `internal/measure` applies the same `Exclude`. |
 
 ## Flow
 
@@ -31,7 +32,7 @@ Walk(ctx, root, opts, sink)
     fold                   totals into the directory and its ancestors
     publish                every 4096 files per worker, through the sink
   |
-  Snapshot{Root, Dirs, Frontier, Types, Files, Bytes, Unreadable, UnreadableDirs, OtherFilesystems, Filesystem, Stopped}
+  Snapshot{Root, Dirs, Frontier, Types, Files, Bytes, Unreadable, UnreadableDirs, OtherFilesystems, Excluded, Exclude, Filesystem, Stopped}
 ```
 
 ## The fact set
@@ -91,6 +92,16 @@ counts sum to `Snapshot.Files`. The walk keeps one census for the whole run
 files the walk counted and never name a file it did not reach, whether the walk
 finished or a deadline cut it.
 
+`Snapshot.Excluded` counts the directories and regular files an exclude
+pattern left out, each once: an excluded directory counts as one entry, and
+nothing below it is listed or counted. `Snapshot.Exclude` holds the patterns in
+the order given. An exclusion holds no fact and opens no subtree: the entry is
+absent from `Dirs`, `Kids`, `Frontier`, the census and every total, and the
+totals stay exact. The count is an atomic counter on `walk`, read by
+`snapshot()`, so live frames and the final snapshot carry it; it does not go
+through `gathered`, because `record` returns early on a batch with no files or
+directories.
+
 ## Bounds and ordering
 
 The walk is breadth-first by depth. Unfinished work at any instant is one
@@ -143,6 +154,21 @@ failures: a directory below the root whose listing is refused for permission is
 abandoned and counted in `UnreadableDirs`, and an entry that is gone by the time
 the walk reaches it is skipped. No other error is classified as permission.
 
+`WalkOptions.Exclude` holds the compiled exclude patterns. `(*walk).list`
+checks each entry in this order: the hidden rule, `Skip`, the type readdir
+reports (no `lstat`), then the patterns. Only a directory or a regular file is
+tested; a symlink or a special file is never tested or counted, and its
+`lstat`, as before, only proves it is not a regular file. A matching directory
+is not queued, and a
+matching file is never stat'ed. `Exclude.Match` tests the entry's absolute path
+in slash form, built as the root's slash prefix plus the relative path, and
+every suffix of it that begins after a `/` (architecture/cli.md has the
+grammar). `NewExclude` picks the cheapest equivalent test per pattern: a
+literal compares the path and its `/`-suffix, `*` plus a literal compares the
+tail, a pattern that starts with `*` or `/` tests the whole path only, and any
+other pattern tests the suffix offsets, computed once per entry, that start
+with its literal head.
+
 `WalkOptions.Skip` holds absolute paths the walk leaves out. A skipped
 directory is not listed and its subtree never counts; a skipped file counts for
 nothing. The composition names the store's directory when it lies inside the
@@ -185,6 +211,11 @@ its facts are the walk's snapshot.
   bytes are apparent size, so the two never add up exactly: block rounding,
   inode tables, journals and unlinked files that are still open all count for
   the device and for no row.
+- A `Skip` path is never tested against a pattern and never counted in
+  `Excluded`, so a pattern that matches the store's directory never shows the
+  store.
+- `Excluded` counts entries, not files: `--exclude node_modules` over a tree
+  with two such directories counts 2, whatever they hold.
 - `Skip` holds absolute paths and is matched against the cleaned absolute
   path of each entry. A skipped directory is absent from `Dirs`, from `Kids`,
   and from every total, so the skipped subtree reads as if it did not exist.

@@ -80,8 +80,9 @@ as columns.
 ## The footer
 
 The footer is dimmed text after the rows. It appears when the view is partial,
-when records were reused, or when any skipped, unknown, unreadable,
-refused-directory or other-filesystem count is nonzero. It states:
+when records were reused, when an exclude pattern was given, or when any
+skipped, unknown, unreadable, refused-directory or other-filesystem count is
+nonzero. It states:
 
 - `partial: <phase> deadline <limit>` when a phase stopped, naming the walk or
   the count that stopped and the limit it obeyed.
@@ -95,6 +96,9 @@ refused-directory or other-filesystem count is nonzero. It states:
 - `unreadable dirs N` for the directories the walk could not list.
 - `other filesystems N` for the directories the walk left because another
   filesystem is mounted there.
+- `excluded N` for the directories and regular files the exclude patterns left
+  out. It is printed whenever a pattern was given, `excluded 0` included, so a
+  pattern that matched nothing is visible.
 - `filesystem X used of Y` for the device that holds the root, when the plan
   carries it. It is the quantity `df` prints, so it explains the difference
   between the rows and what the device allocates: refused directories, mounts

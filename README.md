@@ -56,7 +56,10 @@ virtual file's apparent size out of the view: `/proc/kcore` reports 128 TiB
 and stores nothing.
 
 Sizes are apparent bytes, the size the filesystem reports for a file, so they
-compare with `du --apparent-size -x`. Hidden entries are left out unless
+compare with `du --apparent-size -x`. `--exclude` takes ncdu's patterns: a glob
+tested against the absolute path and every suffix after a `/`, so
+`--exclude node_modules` leaves out every directory of that name. The footer
+counts what it left out, and the totals stay exact. Hidden entries are left out unless
 `--all` is set and `du` counts them, so pass `-a` to compare like for like; on
 a developer machine `.git`, `.cache` and `.local` are most of the tree. A line
 count comes from a second pass over the files the view can show, bounded by
@@ -78,6 +81,8 @@ for the complete list.
 | Flag              | Default | Effect                                                              |
 | ----------------- | ------- | ------------------------------------------------------------------- |
 | `-a`, `--all`     | off     | Include hidden entries.                                             |
+| `--exclude p`     | none    | Leave out what the glob `p` matches, as ncdu does; repeatable.      |
+| `-X`, `--exclude-from f` | none | Read exclude patterns from file `f`, one per line; repeatable. |
 | `-json`           | off     | Print the JSON document, whatever the stream.                       |
 | `-t`, `--timeout` | `2s`    | Run deadline; `0` removes it and the large-file count cap.          |
 | `--all-types`     | off     | Disable the extension deny-list when counting lines.                |
