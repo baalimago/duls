@@ -51,14 +51,14 @@ type Renderer interface {
 	//   - The peek column joins at most 6 items with " · ", appends `+N more`,
 	//     and is cut with `…` when the width is short. (Lines.6)
 	//   - A footer follows the rows when the view is partial, records were reused,
-	//     or any skipped, unknown, unreadable, refused-directory or
-	//     other-filesystem count is nonzero. It names the stopped phase and limit
-	//     when partial, the files the count never dispatched, the counts, and the
-	//     cache token when records were reused; it states the root's device usage
-	//     when the plan carries it, because that is what df reports and the rows
-	//     are a part of it. It never prints elapsed time or record age. It
-	//     continues on the next line rather than hiding a part, and every line
-	//     fits the width. (Lines.7, I1, I4, I23)
+	//     an exclude pattern was given, or any skipped, unknown, unreadable,
+	//     refused-directory or other-filesystem count is nonzero. It names the
+	//     stopped phase and limit when partial, the files the count never
+	//     dispatched, the counts, and the cache token when records were reused;
+	//     it states the root's device usage when the plan carries it, because
+	//     that is what df reports and the rows are a part of it. It never prints
+	//     elapsed time or record age. It continues on the next line rather than
+	//     hiding a part, and every line fits the width. (Lines.7, I1, I4, I23)
 	//   - Sizes use SI units with one decimal and the 999_500 knee; with Bytes
 	//     set they are exact integers of bytes. (Lines.8)
 	//   - Equal views and options give equal lines; a frame uses these same lines
@@ -279,6 +279,9 @@ func footerParts(t plan.Totals, limit time.Duration, bytes bool) []string {
 	}
 	if t.OtherFilesystems > 0 {
 		parts = append(parts, "other filesystems "+siCount(int64(t.OtherFilesystems)))
+	}
+	if len(t.Exclude) > 0 {
+		parts = append(parts, "excluded "+siCount(int64(t.Excluded)))
 	}
 	if t.Filesystem != nil {
 		parts = append(parts, "filesystem "+byteSize(t.Filesystem.Used, bytes)+" used of "+byteSize(t.Filesystem.Total, bytes))

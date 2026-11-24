@@ -20,7 +20,8 @@ footer counts, or how a deadline cuts the count.
 ```text
 Count(ctx, Plan{Root, Dirs}, Options)
   for each dir in Dirs                DirSeq order from the walk
-    readdir                            hidden policy, deny-list, size, witness
+    readdir                            hidden policy, exclude patterns,
+                                       deny-list, size, witness
     sort admitted files                size descending, then name
     dispatch one file per free worker  no read-ahead queue
       open, chunked read, witness      dev/ino/size/mtime/ctime before and after
@@ -47,7 +48,11 @@ The chunk is `clamp(mode buffer, 16 KiB, 64 MiB / workers)`.
 ## Policy
 
 An admitted file is a regular file the deny-list does not name, hidden entries
-following `--all`. The deny-list names final-extension categories: images,
+following `--all`. `counter.list` lists each directory again, so it applies
+`Options.Exclude` itself: after the hidden rule and the directory and symlink
+checks, before the deny-list. A file the patterns match is left out as the walk
+left it out, never dispatched and never `Skipped`, so `measured + skipped +
+unknown` still equals the walk's file count. The deny-list names final-extension categories: images,
 archives, media, object files and executables. `--all-types` disables it.
 
 A denied file is `Skipped` and is never opened. A file at or above 64 MiB is

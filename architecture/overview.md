@@ -4,8 +4,9 @@ duls prints the size view of a directory: the view slivingdoc prints when an
 initial pull materializes a notebook into an empty directory. It walks one
 directory without reading content, counts the lines of the files the view can
 show, and answers a colour terminal with the visual view and a pipe with a
-JSON document. It has no server, no network, and no configuration file. The
-only state outside the scanned directory is a cache of measured line counts.
+JSON document. It has no server, no network, and no configuration file of its
+own; it reads the pattern files `-X` names. The only state outside the scanned
+directory is a cache of measured line counts.
 
 Read this when: changing the pipeline, adding a package, or checking an
 invariant before a change.
@@ -16,9 +17,10 @@ invariant before a change.
 |------|---------|
 | `main.go` | The process entry point: `cli.Run` over `os.Args` and the process streams. |
 | `internal/cli/cli.go` | `Run`, `withProcessEnv`, the `command` interface, and the `router` that turns one command line into one exit code. |
-| `cmd/duls/duls.go` | The command: flags, help, the positional path, and the call into `app.Run`. |
+| `cmd/duls/duls.go` | The command: flags, help, the positional path, the `-X` files and `scan.NewExclude`, and the call into `app.Run`. |
+| `internal/scan/exclude.go` | `Exclude`, `NewExclude`: the exclude patterns, compiled by `cmd/duls`, applied by the walk and the count. |
 | `internal/app/run.go` | `Request`, `Run`, `resolveRoot`, `openStore`, `writeAgent`: resolve the directory, walk, count, encode or render, erase the frame, write, flush the store. |
-| `internal/app/options.go` | `Options` (streams, environment, working directory, the form, style and width seams), `Out`, `ErrOut`, `EnvLookup`. |
+| `internal/app/options.go` | `Options` (streams, environment, working directory, the form, style and width seams), `Abs`, `Out`, `ErrOut`, `EnvLookup`. |
 | `internal/app/version.go` | `Version` and `VersionLine`. |
 | `internal/scan/walk.go` | `Walker`, `Snapshot`, `Dir`, `Sink`: phase 1, the metadata walk. |
 | `internal/measure/measure.go` | `Counter`, `Result`, `Fact`: phase 2, the line count. |
@@ -41,7 +43,8 @@ main.go  os.Exit(cli.Run(ctx, os.Args, Options{Stdout, Stderr}))
 internal/cli.Run
   withProcessEnv: a nil Env becomes os.Environ()
   router.run:
-    command.Parse(args)      flags, --, one optional path
+    command.Parse(args)      flags, --, one optional path, the -X files,
+                             scan.NewExclude over every pattern
     command.Run(ctx)         version, or app.Run
   |
   v
@@ -52,8 +55,10 @@ internal/app.Run
   formOf                     -json, else the stream and NO_COLOR
   frame.New                  enabled only on the visual form
   cache.Open                 disabled when the store cannot or must not exist
-  scan.Walk                  phase 1: enumerate and stat, no content
-  measure.Count              phase 2: count the admitted files
+  scan.Walk                  phase 1: enumerate and stat, no content; the
+                             exclude patterns leave entries out and count them
+  measure.Count              phase 2: count the admitted files, leaving out
+                             what the patterns left out
   plan.Plan(snapshot, held)  the answer's rows
   agent ?
     agent.Encode             the rows as one JSON document
@@ -82,7 +87,7 @@ duls/
 |   |-- frame/               the live outline on a terminal
 |   |-- measure/             phase 2: the line count, the policy, the proof
 |   |-- plan/                the rows: ordering, promotion, folding, shares
-|   |-- scan/                phase 1: the parallel metadata walk
+|   |-- scan/                phase 1: the parallel metadata walk, the exclude patterns
 |   |-- tui/                 the form gate, palette, width
 |   |-- view/                the lines: strip, columns, marks, footer
 |   `-- integrationtest/
@@ -93,8 +98,8 @@ duls/
 
 Interfaces belong to the package that consumes them. `internal/cli` owns its
 three-call `command` view. `internal/app` owns the `Options` seams and joins
-the phases. `internal/measure` consumes `scan.Dir` and offers facts to
-`cache`. `internal/cache` implements `measure.Measured`. No package exists
+the phases. `cmd/duls` compiles `scan.Exclude`. `internal/measure` consumes
+`scan.Dir` and `scan.Exclude` and offers facts to `cache`. `internal/cache` implements `measure.Measured`. No package exists
 only to forward a function.
 
 ## Invariants
@@ -113,7 +118,8 @@ the same commit.
   line denominator, so the line total stays exact. A refused or vanished
   directory leaves its subtree open, and every total above it is a lower bound.
 - **The footer is a fact about this run.** It names the phase that stopped,
-  the limit it obeyed, and whether stored facts were reused. It never prints
+  the limit it obeyed, the entries the exclude patterns left out when a pattern
+  was given, and whether stored facts were reused. It never prints
   elapsed time or a fact's age. When the run's totals are lower bounds it also
   states the root's device usage, the figure `df` prints, so the space the run
   could not reach is declared rather than missing.
@@ -132,7 +138,10 @@ the same commit.
   not end in LF; empty content has zero lines; a CR is part of its line.
 - **The walk's reach.** The walk never follows a symlink below the root and
   never opens a special file. Only regular files count. Hidden entries are
-  skipped unless `--all` is set. A root named through a symlink is resolved. A
+  skipped unless `--all` is set. Directories and regular files an exclude
+  pattern matches are left out of both phases and counted; an exclusion is the
+  user's choice, so it never lowers a total to a bound. A root named through a
+  symlink is resolved. A
   directory on another device than the root is not entered: another filesystem
   is mounted there, so it stays open, is counted in the footer, and makes every
   total above it a lower bound.

@@ -36,7 +36,7 @@ func TestEncodeWritesTheAlgorithmFacts(t *testing.T) {
 		`"entries":[{"name":"people","path":"people","kind":"dir","depth":0,"files":2,"bytes":170,"share":40,"exact":true,` +
 		`"children":[{"name":"ana.md","kind":"file","files":null,"lines":17},{"name":"ben.md","kind":"file","files":null,"lines":17}],"more":0},` +
 		`{"name":"README.md","path":"README.md","kind":"file","depth":0,"bytes":100,"exact":true,"lines":20}],` +
-		`"accounting":{"stopped":"none","measured":6,"notScanned":0,"skipped":0,"unknown":0,"unreadable":0,"unreadableDirs":0,"otherFilesystems":0,"reused":0}}`
+		`"accounting":{"stopped":"none","measured":6,"notScanned":0,"skipped":0,"unknown":0,"unreadable":0,"unreadableDirs":0,"otherFilesystems":0,"excluded":0,"reused":0}}`
 	if string(got) != want {
 		t.Fatalf("document =\n%s\nwant\n%s", got, want)
 	}
@@ -48,6 +48,7 @@ func TestEncodeStatesWhatTheRunCouldNotProve(t *testing.T) {
 		Totals: plan.Totals{
 			Files: 9, Bytes: 400, BytesExact: false, Lines: 12, LinesExact: false,
 			Measured: 3, Skipped: 1, Unknown: 2, Unreadable: 1, UnreadableDirs: 2, OtherFilesystems: 3, Reused: 2,
+			Excluded: 4, Exclude: []string{"a", "*.log"},
 			Stopped: scan.StopDeadline, StoppedPhase: scan.PhaseCount,
 			Filesystem: &scan.Filesystem{Total: 1000, Used: 400, Avail: 500},
 		},
@@ -69,7 +70,7 @@ func TestEncodeStatesWhatTheRunCouldNotProve(t *testing.T) {
 		`"bytesExact":false`,
 		`"linesExact":false`,
 		`"stopped":"count","limit":"1.5s"`,
-		`"measured":3,"notScanned":3,"skipped":1,"unknown":2,"unreadable":1,"unreadableDirs":2,"otherFilesystems":3,"reused":2`,
+		`"measured":3,"notScanned":3,"skipped":1,"unknown":2,"unreadable":1,"unreadableDirs":2,"otherFilesystems":3,"excluded":4,"exclude":["a","*.log"],"reused":2`,
 		`{"name":"sub","kind":"dir","files":3,"lines":null,"exact":false}`,
 		`{"name":"a.md","kind":"file","files":null,"lines":null}`,
 		`"kind":"file","depth":0,"bytes":100,"exact":true,"lines":null`,

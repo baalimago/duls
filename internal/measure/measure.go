@@ -60,6 +60,7 @@ type Options struct {
 	Large   int64
 	All     bool
 	Types   bool
+	Exclude scan.Exclude
 	Now     func() time.Time
 	Open    func(string) (*os.File, error)
 	Store   Measured
@@ -90,8 +91,10 @@ type Counter interface {
 	//     (Count.1, I17, I22)
 	//   - An admitted file is a regular file whose final extension is not on the
 	//     deny-list; an extensionless file is admitted. Options.Types admits
-	//     every regular file. Hidden entries follow Options.All. A denied file is
-	//     Skipped, never opened. (Count.2, I8)
+	//     every regular file. Hidden entries follow Options.All, and a file
+	//     Options.Exclude matches is left out before the deny-list, as the walk
+	//     left it out (architecture/scan.md). A denied file is Skipped, never
+	//     opened. (Count.2, I8)
 	//   - A file whose size is at least Options.Large, when Large is above zero,
 	//     is Skipped without being opened. (Count.3)
 	//   - A file is read in Chunk-sized pieces over one buffer per worker, and
@@ -331,6 +334,9 @@ func (c counter) list(root string, dir scan.Dir, opts Options) ([]candidate, err
 		}
 		rel := join(dir.Path, name)
 		abs := filepath.Join(path, name)
+		if opts.Exclude.Match(filepath.ToSlash(abs)) == scan.Excluded {
+			continue
+		}
 		cand := candidate{job: job{path: abs, rel: rel, peer: peek[name]}}
 		if !opts.Types && denied(name) {
 			cand.skipped = true

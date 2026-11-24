@@ -41,6 +41,8 @@ type Request struct {
 	Refresh time.Duration
 	// Timeout is the run's deadline; 0 means none.
 	Timeout time.Duration
+	// Exclude leaves out the entries its patterns match, in both phases.
+	Exclude scan.Exclude
 }
 
 // The composition's constants are the README's parameters.
@@ -59,7 +61,7 @@ func Run(ctx context.Context, opts Options, req Request) error {
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("duls: %w", err)
 	}
-	root, err := resolveRoot(opts.Cwd, req.Path)
+	root, err := resolveRoot(opts, req.Path)
 	if err != nil {
 		return err
 	}
@@ -99,6 +101,7 @@ func Run(ctx context.Context, opts Options, req Request) error {
 	snapshot, err := scan.New().Walk(ctx, root, scan.WalkOptions{
 		All:     req.All,
 		Skip:    storeSkip(opts, root, req),
+		Exclude: req.Exclude,
 		Workers: preset.Workers,
 		Buffer:  preset.Buffer,
 		Nice:    preset.Nice,
@@ -123,6 +126,7 @@ func Run(ctx context.Context, opts Options, req Request) error {
 		Large:   large,
 		All:     req.All,
 		Types:   req.Types,
+		Exclude: req.Exclude,
 		Store:   store,
 		Sink:    countSink(sink, snapshot),
 	})
@@ -267,20 +271,14 @@ func (l *live) lines(p scan.Progress) []string {
 
 // resolveRoot makes the requested directory absolute and resolves it, so a root
 // named through a symbolic link is walked by its target (I8).
-func resolveRoot(cwd, path string) (string, error) {
+func resolveRoot(opts Options, path string) (string, error) {
 	if path == "" {
 		path = "."
 	}
-	if !filepath.IsAbs(path) {
-		if cwd == "" {
-			var err error
-			if cwd, err = os.Getwd(); err != nil {
-				return "", fmt.Errorf("duls: resolve the working directory: %w", err)
-			}
-		}
-		path = filepath.Join(cwd, path)
+	path, err := opts.Abs(path)
+	if err != nil {
+		return "", err
 	}
-	path = filepath.Clean(path)
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", fmt.Errorf("duls: inspect %s: %w", path, err)

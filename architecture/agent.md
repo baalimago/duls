@@ -43,7 +43,7 @@ cursor move or an escape byte.
  "totals":{"files":3,"bytes":152,"lines":11,"bytesExact":true,"linesExact":true,"typesMore":0},
  "types":[{"ext":".md","files":3,"share":100}],
  "entries":[{"name":"cleo.md","path":"cleo.md","kind":"file","depth":0,"bytes":67,"exact":true,"lines":4}],
- "accounting":{"stopped":"none","measured":3,"notScanned":0,"skipped":0,"unknown":0,"unreadable":0,"unreadableDirs":0,"otherFilesystems":0,"reused":0}}
+ "accounting":{"stopped":"none","measured":3,"notScanned":0,"skipped":0,"unknown":0,"unreadable":0,"unreadableDirs":0,"otherFilesystems":0,"excluded":0,"reused":0}}
 ```
 
 `Encode` writes the object on one line, and `writeAgent` ends it with one LF, so
@@ -95,7 +95,11 @@ that sees no value must report that it has none.
 finished, else the phase that stopped, `walk` or `count`. `limit` names the
 deadline that phase obeyed and is absent when no phase stopped or the run had
 no deadline. `measured`, `skipped`, `unknown`, `unreadable`, `unreadableDirs`,
-`otherFilesystems` and `reused` are the same counts the visual footer prints.
+`otherFilesystems`, `excluded` and `reused` are the same counts the visual
+footer prints. `excluded` is always present, 0 when nothing was left out.
+`exclude` lists the patterns the run obeyed in command-line order, with each
+`-X` file's lines in place, and is absent when none was given. An exclusion
+never lowers `files`, `bytes` or `lines` to a bound.
 `notScanned` is `files - measured - skipped - unknown`, which is the file count
 the count phase never dispatched. A run whose `unreadableDirs` or
 `otherFilesystems` is above zero states lower-bound `files`, `bytes` and

@@ -643,3 +643,29 @@ func (s *store) factSet() map[string]int64 {
 	maps.Copy(out, s.facts)
 	return out
 }
+
+// TestExcludedFileIsNeverDispatched proves the count leaves out what the walk
+// left out, before the deny-list, so an excluded file is neither opened nor
+// skipped (architecture/measure.md).
+func TestExcludedFileIsNeverDispatched(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "a.md", 4)
+	write(t, root, "b.log", 4)
+	write(t, root, "c.png", 4)
+	plan := planFor(t, root)
+	exclude, err := scan.NewExclude([]string{"*.log", "*.png"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := &openLog{}
+	result, err := measure.New().Count(context.Background(), plan, measure.Options{Workers: 1, Exclude: exclude, Open: log.open})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{filepath.Join(plan.Root, "a.md")}; !reflect.DeepEqual(log.seen(), want) {
+		t.Fatalf("opens = %v, want only %v", log.seen(), want)
+	}
+	if result.Measured != 1 || result.Skipped != 0 || result.Unknown != 0 {
+		t.Fatalf("result = %+v, want one measured file and nothing skipped", result)
+	}
+}

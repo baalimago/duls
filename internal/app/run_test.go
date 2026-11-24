@@ -314,7 +314,7 @@ func TestResolveRoot(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := resolveRoot(tt.cwd, tt.path)
+			got, err := resolveRoot(Options{Cwd: tt.cwd}, tt.path)
 			if err != nil {
 				t.Fatalf("resolveRoot: %v", err)
 			}

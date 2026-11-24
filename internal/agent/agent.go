@@ -136,7 +136,10 @@ type Accounting struct {
 	// filesystem is mounted there. Their subtrees hold no fact either, so the
 	// same totals are lower bounds while this count is above zero.
 	OtherFilesystems int `json:"otherFilesystems"`
-	Reused           int `json:"reused"`
+	// Excluded and Exclude are the run's exclusions (architecture/agent.md).
+	Excluded int      `json:"excluded"`
+	Exclude  []string `json:"exclude,omitempty"`
+	Reused   int      `json:"reused"`
 }
 
 const (
@@ -207,6 +210,8 @@ func accounting(t plan.Totals, limit time.Duration) Accounting {
 		Unreadable:       t.Unreadable,
 		UnreadableDirs:   t.UnreadableDirs,
 		OtherFilesystems: t.OtherFilesystems,
+		Excluded:         t.Excluded,
+		Exclude:          t.Exclude,
 		Reused:           t.Reused,
 	}
 	if t.Stopped != scan.StopNone {

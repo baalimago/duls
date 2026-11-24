@@ -56,10 +56,13 @@ func Preset(m Mode) (WalkOptions, bool) {
 // Skip holds absolute paths of entries to leave out: a skipped directory is
 // never listed and its subtree never counts, and a skipped file counts for
 // nothing. The composition skips the store's directory when it lies inside the
-// root, so a run never reports the files it writes (I10).
+// root, so a run never reports the files it writes (I10). Exclude leaves out the
+// directories and regular files its patterns match and counts them
+// (architecture/scan.md).
 type WalkOptions struct {
 	All     bool
 	Skip    []string
+	Exclude Exclude
 	Workers int
 	Buffer  int
 	Nice    int
@@ -109,9 +112,10 @@ type Dir struct {
 // Files. Unreadable counts regular files whose permission was refused,
 // UnreadableDirs counts the directories whose listing was refused, and
 // OtherFilesystems counts the directories the walk left because another
-// filesystem is mounted there. Filesystem is the usage of the device that
-// holds the root, which the composition fills when it can read it; the walk
-// leaves it nil.
+// filesystem is mounted there. Excluded counts the directories and regular
+// files an exclude pattern left out, and Exclude holds the patterns in the
+// order given. Filesystem is the usage of the device that holds the root, which
+// the composition fills when it can read it; the walk leaves it nil.
 type Snapshot struct {
 	Root             string
 	Dirs             []Dir
@@ -122,6 +126,8 @@ type Snapshot struct {
 	Unreadable       int
 	UnreadableDirs   int
 	OtherFilesystems int
+	Excluded         int
+	Exclude          []string
 	Filesystem       *Filesystem
 	Stopped          Stop
 }
@@ -199,7 +205,10 @@ type Walker interface {
 	//     count, and no symlink below the root is followed. A directory whose
 	//     device is not the root's is not entered: another filesystem is mounted
 	//     there, so it is left open in Frontier, counted in OtherFilesystems, and
-	//     the walk continues. (Walk.9, I8)
+	//     the walk continues. A directory or regular file an Exclude pattern
+	//     matches is left out and counted in Excluded; a hidden entry, a Skip
+	//     path, a symlink or a special file is never tested
+	//     (architecture/scan.md). (Walk.9, I8)
 	//   - On failure, the first observed failure cancels remaining work and no
 	//     snapshot is returned. (Walk.10, I20)
 	Walk(ctx context.Context, root string, opts WalkOptions, sink Sink) (Snapshot, error)
@@ -239,6 +248,7 @@ func newWalk(root string, dev uint64, opts WalkOptions, sink Sink) *walk {
 		sink:     sink,
 		root:     root,
 		dev:      dev,
+		prefix:   slashPrefix(root),
 		skips:    skipSet(opts.Skip),
 		census:   map[string]int{},
 		rootNode: &dirNode{path: "", name: ""},
@@ -294,6 +304,7 @@ type walk struct {
 	sink     Sink
 	root     string
 	dev      uint64
+	prefix   string
 	skips    map[string]bool
 	rootNode *dirNode
 	cancel   context.CancelFunc
@@ -309,10 +320,11 @@ type walk struct {
 	errMu sync.Mutex
 	err   error
 
-	files atomic.Int64
-	bytes atomic.Int64
-	dirs  atomic.Int64
-	pubMu sync.Mutex
+	files    atomic.Int64
+	bytes    atomic.Int64
+	dirs     atomic.Int64
+	excluded atomic.Int64
+	pubMu    sync.Mutex
 
 	// census counts the extensions of every file the walk counted, guarded by
 	// aggMu; tree is the sink's view of the facts held at one observation.
@@ -415,16 +427,23 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		if !w.opts.All && strings.HasPrefix(name, ".") {
 			continue
 		}
-		if w.skipped(joinPath(node.path, name)) {
+		rel := joinPath(node.path, name)
+		if w.skipped(rel) {
 			continue
 		}
 		if entry.IsDir() {
-			child := &dirNode{path: joinPath(node.path, name), name: name, parent: node}
+			if w.excludes(rel) {
+				continue
+			}
+			child := &dirNode{path: rel, name: name, parent: node}
 			got.dirs = append(got.dirs, child)
 			*next = append(*next, child)
 			continue
 		}
-		childPath := w.abs(joinPath(node.path, name))
+		if entry.Type().IsRegular() && w.excludes(rel) {
+			continue
+		}
+		childPath := w.abs(rel)
 		entryInfo, err := entry.Info()
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) && entry.Type().IsRegular() {
@@ -617,9 +636,27 @@ func (w *walk) abs(rel string) string {
 	return filepath.Join(w.root, filepath.FromSlash(rel))
 }
 
-// skipped reports whether the entry at rel is one the composition excluded.
+// skipped reports whether rel is a Skip path.
 func (w *walk) skipped(rel string) bool {
 	return len(w.skips) > 0 && w.skips[w.abs(rel)]
+}
+
+// excludes reports whether a pattern matches rel, and counts it (architecture/scan.md).
+func (w *walk) excludes(rel string) bool {
+	if len(w.opts.Exclude.tests) == 0 || w.opts.Exclude.Match(w.prefix+rel) == Kept {
+		return false
+	}
+	w.excluded.Add(1)
+	return true
+}
+
+// slashPrefix is the root in slash form, ending in '/'.
+func slashPrefix(root string) string {
+	prefix := filepath.ToSlash(root)
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
+	}
+	return prefix
 }
 
 func skipSet(paths []string) map[string]bool {
@@ -653,6 +690,8 @@ func (w *walk) snapshot(stopped Stop) Snapshot {
 		Frontier:         frontier,
 		UnreadableDirs:   unreadableDirs,
 		OtherFilesystems: otherFilesystems,
+		Excluded:         int(w.excluded.Load()),
+		Exclude:          w.opts.Exclude.Patterns(),
 		Stopped:          stopped,
 	}
 	if w.rootNode.listed {

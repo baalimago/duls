@@ -11,7 +11,8 @@ exit code.
 | File | Purpose |
 |------|---------|
 | `internal/cli/cli.go` | `router.fail`: one `error: <message>` line on stderr. |
-| `cmd/duls/duls.go` | `Parse` and `validate`: the flag and path errors. |
+| `cmd/duls/duls.go` | `Parse`, `validate` and `compileExcludes`: the flag, path and exclude errors. |
+| `internal/scan/exclude.go` | `PatternError`: a pattern no cleaned path can match, or syntax duls does not support. |
 | `internal/app/run.go` | `resolveRoot` and `openStore`: the path, inspect, and not-a-directory failures, and the store fallback. |
 | `internal/scan/walk.go` | The walk failures, each wrapped with the path. |
 | `internal/measure/measure.go` | The read and close failures of the count. |
@@ -62,8 +63,13 @@ stderr, the view, or the exit code.
 
 ## Gotchas
 
-- A flag failure carries the `run 'duls -h' for its flags` hint; a path-count
-  failure does not.
+- A flag-package failure and an exclude failure carry the `run 'duls -h' for
+  its flags` hint; a `validate` range error and a path-count failure do not.
+- An exclude failure reads `flag: scan: exclude pattern "<p>" <reason>`, or
+  `flag: FILE:LINE: scan: ...` for a pattern from an `-X` file. An unreadable
+  `-X` file reads `flag: read the exclude file FILE: <cause>` and wraps the cause,
+  so `errors.Is(err, fs.ErrNotExist)` holds. `scan.PatternError.Index` maps a
+  refusal back to its flag or line.
 - `errors.Is(err, flag.ErrHelp)` is the help path, not a failure path.
 - Wrapping twice with the same package name reads as `duls: duls: ...`. Wrap
   at the layer that owns the operation.

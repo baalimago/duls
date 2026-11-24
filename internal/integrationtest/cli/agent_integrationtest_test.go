@@ -46,7 +46,11 @@ type document struct {
 		Unreadable int    `json:"unreadable"`
 		// UnreadableDirs counts the directories the walk could not list.
 		UnreadableDirs int `json:"unreadableDirs"`
-		Reused         int `json:"reused"`
+		// Excluded counts the entries an exclude pattern left out; Exclude is
+		// nil when the document states no pattern.
+		Excluded int      `json:"excluded"`
+		Exclude  []string `json:"exclude"`
+		Reused   int      `json:"reused"`
 	} `json:"accounting"`
 }
 

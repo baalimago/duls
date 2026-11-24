@@ -75,6 +75,9 @@ type Totals struct {
 	// filesystem is mounted there. Their subtrees hold no fact, so every total
 	// above one is a lower bound.
 	OtherFilesystems int
+	// Excluded and Exclude never lower a total to a bound (architecture/plan.md).
+	Excluded int
+	Exclude  []string
 	// Filesystem is the usage of the device that holds the root, stated when
 	// the totals are lower bounds: the device holds what the run could not
 	// reach (architecture/plan.md).
@@ -402,6 +405,8 @@ func totals(s scan.Snapshot, m Measured) Totals {
 		// The walk left another filesystem unentered, so every total it holds
 		// is a lower bound of the tree below the root.
 		OtherFilesystems: s.OtherFilesystems,
+		Excluded:         s.Excluded,
+		Exclude:          s.Exclude,
 		Filesystem:       device,
 		Stopped:          stopped,
 		StoppedPhase:     phase,
