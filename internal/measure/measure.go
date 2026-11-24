@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 )
 
@@ -67,7 +68,8 @@ type Options struct {
 	Sink    scan.Sink
 }
 
-// Result is what one count proved.
+// Result is what one count proved. Roles splits Measured, Lines and Skipped by
+// each file's role (architecture/role.md).
 type Result struct {
 	Lines      int64
 	Measured   int
@@ -76,6 +78,7 @@ type Result struct {
 	Unreadable int
 	Reused     int
 	Named      map[string]int64
+	Roles      [role.Count]role.Tally
 	Stopped    scan.Stop
 }
 
@@ -118,6 +121,9 @@ type Counter interface {
 	//   - Every goroutine it started has exited before it returns. (Count.10, I19)
 	//   - Named holds the line count of every measured file that is one of its
 	//     directory's six largest children, keyed by root-relative path. (Count.11)
+	//   - Roles holds, per role of the root-relative path, the measured files,
+	//     their lines and the skipped files; they sum to Measured, Lines and
+	//     Skipped. (architecture/role.md)
 	//   - Cancellation wins over a simultaneous deadline; the first non-context
 	//     failure cancels remaining workers. (Count.12, I20, D26)
 	//   - Count publishes PhaseCount progress through opts.Sink with cumulative
@@ -145,6 +151,7 @@ type job struct {
 	size    int64
 	witness scan.Witness
 	peer    bool
+	role    role.Role
 }
 
 type outcome struct {
@@ -189,6 +196,7 @@ func (counter) Count(ctx context.Context, plan Plan, opts Options) (Result, erro
 				state.unknown++
 			case cand.skipped:
 				state.skipped++
+				state.roles[cand.role].Skipped++
 			default:
 				state.lookup(cand.job)
 				if !state.hit {
@@ -229,6 +237,7 @@ func (counter) Count(ctx context.Context, plan Plan, opts Options) (Result, erro
 		Unreadable: state.unreadable,
 		Reused:     state.reused,
 		Named:      state.named,
+		Roles:      state.roles,
 		Stopped:    stopped,
 	}, nil
 }
@@ -245,6 +254,7 @@ type state struct {
 	unknown    int
 	unreadable int
 	reused     int
+	roles      [role.Count]role.Tally
 	dirs       int64
 	hit        bool
 	last       time.Time
@@ -261,9 +271,7 @@ func (s *state) lookup(j job) {
 	}
 	s.hit = true
 	s.reused++
-	s.measured++
-	s.lines += lines
-	s.name(j, lines)
+	s.prove(j, lines)
 }
 
 func (s *state) apply(out outcome) {
@@ -277,9 +285,7 @@ func (s *state) apply(out outcome) {
 			// The run was cut: the fact is not whole and not stored.
 		}
 	case out.measured:
-		s.measured++
-		s.lines += out.lines
-		s.name(out.job, out.lines)
+		s.prove(out.job, out.lines)
 		if s.opts.Store != nil {
 			s.opts.Store.StoreFact(Fact{Path: out.path, Lines: out.lines, W: out.witness})
 		}
@@ -287,7 +293,11 @@ func (s *state) apply(out outcome) {
 	s.tick(false)
 }
 
-func (s *state) name(j job, lines int64) {
+func (s *state) prove(j job, lines int64) {
+	s.measured++
+	s.lines += lines
+	s.roles[j.role].Files++
+	s.roles[j.role].Lines += lines
 	if j.peer {
 		s.named[j.rel] = lines
 	}
@@ -337,7 +347,7 @@ func (c counter) list(root string, dir scan.Dir, opts Options) ([]candidate, err
 		if opts.Exclude.Match(filepath.ToSlash(abs)) == scan.Excluded {
 			continue
 		}
-		cand := candidate{job: job{path: abs, rel: rel, peer: peek[name]}}
+		cand := candidate{job: job{path: abs, rel: rel, peer: peek[name], role: role.Of(rel)}}
 		if !opts.Types && denied(name) {
 			cand.skipped = true
 			out = append(out, cand)
@@ -535,6 +545,8 @@ var deniedExtensions = map[string]bool{
 	"o": true, "a": true, "so": true, "dylib": true, "obj": true, "pyc": true, "pyo": true,
 	"class": true, "wasm": true, "lib": true, "pdb": true,
 	"exe": true, "dll": true, "com": true, "msi": true, "app": true, "elf": true,
+	"pdf": true, "doc": true, "docx": true, "odt": true, "ods": true, "odp": true, "epub": true,
+	"xls": true, "xlsx": true, "ppt": true, "pptx": true,
 }
 
 func denied(name string) bool {

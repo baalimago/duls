@@ -33,8 +33,8 @@ type Renderer interface {
 	//
 	//   - The answer is the visual form: a colour strip and the blank line after
 	//     it when the view has a row whose bytes the strip can show, then the
-	//     dimmed totals, type line and header, then one row per entry, each
-	//     behind a box in its entry's colour. (Lines.1, I5, I6)
+	//     dimmed totals, type line, role line and header, then one row per
+	//     entry, each behind a box in its entry's colour. (Lines.1, I5, I6)
 	//   - The width is clamped to [40, 150] and no line exceeds it in runes.
 	//     (Lines.2)
 	//   - Line 1 is the totals line: files, size and lines, with `~` before a
@@ -44,8 +44,14 @@ type Renderer interface {
 	//   - Line 2 is the type line when the walk counted a file: `types` then
 	//     each type as its share and its extension, largest first, with
 	//     `+N more` for the types that did not fit, cut to the width. (Lines.11)
-	//   - The header follows the type line: entry, files, size, share, and the
-	//     peek column. (Lines.4)
+	//   - The role line follows the type line in an answer, never in a
+	//     provisional view: `lines` then, in the plan's order, each role with
+	//     proven lines as its share and its name, every share marked `~` when
+	//     the line total is not exact, and `? <role>` for a role with a file the
+	//     count neither proved nor skipped, cut to the width.
+	//     (architecture/role.md)
+	//   - The header follows the type and role lines: entry, files, size,
+	//     share, and the peek column. (Lines.4)
 	//   - A directory row shows files, size and share; a file row shows its line
 	//     count in the detail column; a folded row shows `+N smaller`. (Lines.5)
 	//   - The peek column joins at most 6 items with " · ", appends `+N more`,
@@ -100,6 +106,9 @@ func (renderer) Lines(v plan.View, opts Options) []string {
 	lines = append(lines, "  "+opts.Style.Dim(cut(totalsLine(v.Totals, opts.Bytes, opts.Provisional), width-2)))
 	if types := typesLine(v.Totals, width-2); types != "" {
 		lines = append(lines, "  "+opts.Style.Dim(types))
+	}
+	if roles := rolesLine(v.Totals, width-2); roles != "" && !opts.Provisional {
+		lines = append(lines, "  "+opts.Style.Dim(roles))
 	}
 	header := pad("entry", cols.name) + " " + right("files", cols.files) + " " + right("size", cols.size) + " " + right("share", cols.share) + " " + cut("largest inside, without a row of its own", cols.peek)
 	lines = append(lines, "  "+opts.Style.Dim(strings.TrimRight(header, " ")))
@@ -218,6 +227,22 @@ func typesLine(t plan.Totals, width int) string {
 		items = append(items, fmt.Sprintf("+%s more", siCount(int64(t.TypesMore))))
 	}
 	return cut("types  "+strings.Join(items, " · "), width)
+}
+
+func rolesLine(t plan.Totals, width int) string {
+	items := make([]string, 0, len(t.Roles))
+	for _, share := range t.Roles {
+		switch {
+		case share.Lines > 0:
+			items = append(items, mark(percent(share.Share, share.Lines), t.LinesExact)+" "+share.Role.String())
+		case share.Lines < 0 && share.Files > share.Skipped:
+			items = append(items, "? "+share.Role.String())
+		}
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	return cut("lines  "+strings.Join(items, " · "), width)
 }
 
 func typeName(ext string) string {

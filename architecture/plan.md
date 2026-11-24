@@ -11,7 +11,7 @@ ordered, or how shares and the peek column are computed.
 
 | File | Purpose |
 |------|---------|
-| `internal/plan/plan.go` | `Planner`, `Plan`, `View`, `Entry`, `Item`, `Totals`, `TypeShare`, `Measured`, `Kind`, `Entries`, `Children`, `Palette`, `tree`, `row`, `group`, `totals`. |
+| `internal/plan/plan.go` | `Planner`, `Plan`, `View`, `Entry`, `Item`, `Totals`, `TypeShare`, `RoleShare`, `roleShares`, `Measured`, `Kind`, `Entries`, `Children`, `Palette`, `tree`, `row`, `group`, `totals`. |
 | `internal/scan/walk.go` | `Snapshot`, `Dir`, `Child`, `Stop`: the facts the planner reads. |
 | `internal/measure/measure.go` | `Result`, which the caller maps to `Measured`. |
 | `internal/app/run.go` | The one caller: it maps `Snapshot` and `Result` to `Plan`. |
@@ -105,6 +105,15 @@ nothing; the renderer decides the text.
 extension. `Share` is the rounded percentage of `Totals.Files`, the same
 rounding the rows use. `TypesMore` counts the types that did not fit. An empty
 census gives no types, so a view with no files has no type line.
+
+`Totals.Roles` holds every role the walk counted a file in or the count
+measured or skipped a file of. `Files` is the larger of the walk's role census
+and the count's measured and skipped files, `Lines` the count's proven lines
+for the role and -1 when it proved none, `Share` the rounded percentage of
+`Totals.Lines`, 0 when `Lines` is -1, and `Skipped` the files the policy
+skipped. The order is proven lines descending, then files descending, then
+role order. Unlike the types, the roles are not bounded: there are seven.
+([role.md](./role.md))
 
 ## Gotchas
 

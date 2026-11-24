@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/baalimago/duls/internal/plan"
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 	"github.com/baalimago/duls/internal/tui"
 	"github.com/baalimago/duls/internal/view"
@@ -29,6 +30,7 @@ func TestLiveRendersTheFactsHeldNow(t *testing.T) {
 				Files: 2, Bytes: 100, Stopped: scan.StopDeadline,
 				Frontier: []string{"pics"},
 				Types:    map[string]int{".png": 2},
+				Roles:    [role.Count]int{role.Other: 2},
 				Dirs: []scan.Dir{
 					{Path: "", Files: 2, Bytes: 100, Kids: []scan.Child{{Name: "pics", Dir: true, Files: 2, Bytes: 100}}},
 					{Path: "pics", Files: 2, Bytes: 100},
@@ -44,5 +46,8 @@ func TestLiveRendersTheFactsHeldNow(t *testing.T) {
 	}
 	if strings.Contains(joined, "partial:") {
 		t.Fatalf("live lines =\n%s\nstate a footer the run has not proved", joined)
+	}
+	if strings.Contains(joined, "lines  ") {
+		t.Fatalf("live lines =\n%s\ndraw a role line the run has not proved (architecture/role.md)", joined)
 	}
 }

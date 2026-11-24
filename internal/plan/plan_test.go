@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/baalimago/duls/internal/plan"
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 )
 
@@ -417,6 +418,39 @@ func TestTypeShares(t *testing.T) {
 	}
 	if empty := plan.New().Plan(scan.Snapshot{}, plan.Measured{}).Totals; empty.Types != nil || empty.TypesMore != 0 {
 		t.Fatalf("an empty census gave %v and %d more", empty.Types, empty.TypesMore)
+	}
+}
+
+// TestRoleShares proves every role the walk or the count saw is listed, a role
+// never counts fewer files than the count saw, a role with no proven line has
+// no line count and no share, and the order is proven lines, then files, then
+// role order (architecture/role.md).
+func TestRoleShares(t *testing.T) {
+	var census [role.Count]int
+	census[role.Source], census[role.Test], census[role.Docs] = 5, 3, 2
+	census[role.Vendored], census[role.Config], census[role.Other] = 2, 1, 1
+	var proof [role.Count]role.Tally
+	proof[role.Source] = role.Tally{Files: 5, Lines: 60}
+	proof[role.Test] = role.Tally{Files: 3, Lines: 30}
+	proof[role.Docs] = role.Tally{Files: 2, Lines: 10}
+	proof[role.Generated] = role.Tally{Files: 1, Lines: 0}
+	proof[role.Other] = role.Tally{Skipped: 1}
+	snap := scan.Snapshot{Files: 14, Roles: census}
+	totals := plan.New().Plan(snap, plan.Measured{Total: 100, Measured: 11, Roles: proof}).Totals
+	want := []plan.RoleShare{
+		{Role: role.Source, Files: 5, Lines: 60, Share: 60},
+		{Role: role.Test, Files: 3, Lines: 30, Share: 30},
+		{Role: role.Docs, Files: 2, Lines: 10, Share: 10},
+		{Role: role.Generated, Files: 1, Lines: 0, Share: 0},
+		{Role: role.Vendored, Files: 2, Lines: -1},
+		{Role: role.Config, Files: 1, Lines: -1},
+		{Role: role.Other, Files: 1, Lines: -1, Skipped: 1},
+	}
+	if !reflect.DeepEqual(totals.Roles, want) {
+		t.Fatalf("roles = %+v, want %+v", totals.Roles, want)
+	}
+	if empty := plan.New().Plan(scan.Snapshot{}, plan.Measured{}).Totals; empty.Roles != nil {
+		t.Fatalf("an empty census gave roles %+v", empty.Roles)
 	}
 }
 

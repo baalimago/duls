@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 )
 
@@ -92,6 +93,9 @@ type Totals struct {
 	// TypesMore counts the types that did not fit.
 	Types     []TypeShare
 	TypesMore int
+	// Roles holds every role the walk counted a file in or the count proved a
+	// line of, ordered by proven lines (architecture/role.md).
+	Roles []RoleShare
 }
 
 // TypeShare is one file type's share of the view's file count.
@@ -101,6 +105,16 @@ type TypeShare struct {
 	Ext   string
 	Files int
 	Share int
+}
+
+// RoleShare is one role's files and its share of the view's proven lines.
+type RoleShare struct {
+	Role  role.Role
+	Files int
+	// Lines is -1 when the count proved no file of the role; Share is then 0.
+	Lines   int64
+	Share   int
+	Skipped int
 }
 
 // View is what the renderer draws.
@@ -118,6 +132,7 @@ type Measured struct {
 	Unknown    int
 	Unreadable int
 	Reused     int
+	Roles      [role.Count]role.Tally
 	Stopped    scan.Stop
 }
 
@@ -163,6 +178,13 @@ type Planner interface {
 	//     ties by Ext, with Share the rounded percentage of Totals.Files; an
 	//     empty census gives no types. Totals.TypesMore counts the types that
 	//     did not fit. (Plan.10, I13)
+	//   - Totals.Roles holds each role with a file in the walk's role census
+	//     or a file the count measured or skipped. Files is the larger of the
+	//     census and the count's files; Lines is the proven lines of the role,
+	//     -1 when the count measured none of its files; Share is the rounded
+	//     percentage of Totals.Lines, 0 when Lines is -1; Skipped is the files
+	//     the policy skipped. Roles are ordered by Lines descending, then Files
+	//     descending, then role order. (architecture/role.md)
 	//   - Same snapshot and same Measured give an equal View; the frame has no
 	//     separate planning or ordering rule. (Plan.9, I15, I17)
 	//   - The view depends only on the supplied facts and declared completeness.
@@ -413,7 +435,30 @@ func totals(s scan.Snapshot, m Measured) Totals {
 		Reused:           m.Reused,
 		Types:            types,
 		TypesMore:        more,
+		Roles:            roleShares(s.Roles, m.Roles, m.Total),
 	}
+}
+
+func roleShares(census [role.Count]int, proof [role.Count]role.Tally, lines int64) []RoleShare {
+	var shares []RoleShare
+	for r := range role.Count {
+		files := max(census[r], proof[r].Files+proof[r].Skipped)
+		if files == 0 {
+			continue
+		}
+		rs := RoleShare{Role: role.Role(r), Files: files, Lines: -1, Skipped: proof[r].Skipped}
+		if proof[r].Files > 0 {
+			rs.Lines, rs.Share = proof[r].Lines, share(proof[r].Lines, lines)
+		}
+		shares = append(shares, rs)
+	}
+	slices.SortStableFunc(shares, func(a, b RoleShare) int {
+		if a.Lines != b.Lines {
+			return cmpInt64(b.Lines, a.Lines)
+		}
+		return cmp.Compare(b.Files, a.Files)
+	})
+	return shares
 }
 
 func typeShares(census map[string]int, files int) ([]TypeShare, int) {

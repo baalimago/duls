@@ -241,9 +241,10 @@ Usage:
 
 [path] is the directory to inspect and defaults to the working directory.
 duls walks the directory and prints the view slivingdoc prints when an
-initial pull materializes a notebook into an empty directory: a strip of the
-largest entries, the file, size and line totals, and one row per entry with
-its files, size, share, and largest children. Rows are ordered and shared by
+initial pull materializes a notebook into an empty directory, plus a line that
+splits the lines by role: a strip of the largest entries, the file, size and
+line totals, each role's share of the lines, and one row per entry with its
+files, size, share, and largest children. Rows are ordered and shared by
 bytes. Entries below the top level are promoted into rows while rows remain,
 and the smallest top-level entries fold into one row. A file's lines follow
 the LF rule: one per LF, plus a final run without an LF; empty content has

@@ -14,6 +14,7 @@ footer counts, or how a deadline cuts the count.
 | `internal/measure/measure.go` | `Counter`, `Count`, `Plan`, `Options`, `Result`, `Fact`, `Measured`, `denied`, `tick`. |
 | `internal/scan/walk.go` | `Dir`, `Child` and `Snapshot`: the dispatch input. |
 | `internal/cache/cache.go` | The `Store` that implements `Measured`. |
+| `internal/role/role.go` | `Of` and `Tally`: the role each proven file adds its lines to. |
 
 ## Flow
 
@@ -30,7 +31,7 @@ Count(ctx, Plan{Root, Dirs}, Options)
     fold the outcomes                  measured, skipped, unknown, unreadable
     publish                            at most once per 100 ms, forced per directory
   |
-  Result{Lines, Measured, Skipped, Unknown, Unreadable, Reused, Named, Stopped}
+  Result{Lines, Measured, Skipped, Unknown, Unreadable, Reused, Named, Roles, Stopped}
 ```
 
 ## The order
@@ -52,8 +53,10 @@ following `--all`. `counter.list` lists each directory again, so it applies
 `Options.Exclude` itself: after the hidden rule and the directory and symlink
 checks, before the deny-list. A file the patterns match is left out as the walk
 left it out, never dispatched and never `Skipped`, so `measured + skipped +
-unknown` still equals the walk's file count. The deny-list names final-extension categories: images,
-archives, media, object files and executables. `--all-types` disables it.
+unknown` still equals the walk's file count. The deny-list names
+final-extension categories: images, archives, media, object files,
+executables, and binary documents (`.pdf`, office and OpenDocument formats,
+`.epub`), whose bytes are not text lines. `--all-types` disables it.
 
 A denied file is `Skipped` and is never opened. A file at or above 64 MiB is
 also `Skipped` when the run has a deadline; `-t 0` lifts the cap.
@@ -83,6 +86,12 @@ unknown equals the file count the rows report.
 `Named` holds the line count of every measured file that is one of its own
 directory's six largest children. That is exactly the set the peek column can
 print, so a proven count is never shown as `?`.
+
+`Roles` holds one `role.Tally` per role, keyed by `role.Of` of the
+root-relative path: the proven files, read or reused, their lines, and the
+files the policy skipped. The tallies sum to `Measured`, `Lines` and
+`Skipped`. An unknown file adds to no tally, so a role whose files were all
+skipped or unknown has no proven lines rather than zero ([role.md](./role.md)).
 
 `Reused` counts the facts a store returned, and the footer prints
 `cache reused` when it is nonzero.

@@ -1,7 +1,8 @@
 # Overview
 
 duls prints the size view of a directory: the view slivingdoc prints when an
-initial pull materializes a notebook into an empty directory. It walks one
+initial pull materializes a notebook into an empty directory, plus a line that
+splits the lines by role. It walks one
 directory without reading content, counts the lines of the files the view can
 show, and answers a colour terminal with the visual view and a pipe with a
 JSON document. It has no server, no network, and no configuration file of its
@@ -24,6 +25,7 @@ invariant before a change.
 | `internal/app/version.go` | `Version` and `VersionLine`. |
 | `internal/scan/walk.go` | `Walker`, `Snapshot`, `Dir`, `Sink`: phase 1, the metadata walk. |
 | `internal/measure/measure.go` | `Counter`, `Result`, `Fact`: phase 2, the line count. |
+| `internal/role/role.go` | `Of`, `Role`, `Tally`: a file's role from its path, used by both phases. |
 | `internal/plan/plan.go` | `Planner`, `Plan`, `View`, `Entry`, `Totals`: the rows. |
 | `internal/view/view.go` | `Renderer`, `Lines`: the lines of the visual form. |
 | `internal/agent/agent.go` | `Encode`, `Document`: the JSON document of agent mode. |
@@ -87,6 +89,7 @@ duls/
 |   |-- frame/               the live outline on a terminal
 |   |-- measure/             phase 2: the line count, the policy, the proof
 |   |-- plan/                the rows: ordering, promotion, folding, shares
+|   |-- role/                a file's role from its path below the root
 |   |-- scan/                phase 1: the parallel metadata walk, the exclude patterns
 |   |-- tui/                 the form gate, palette, width
 |   |-- view/                the lines: strip, columns, marks, footer
@@ -99,7 +102,9 @@ duls/
 Interfaces belong to the package that consumes them. `internal/cli` owns its
 three-call `command` view. `internal/app` owns the `Options` seams and joins
 the phases. `cmd/duls` compiles `scan.Exclude`. `internal/measure` consumes
-`scan.Dir` and `scan.Exclude` and offers facts to `cache`. `internal/cache` implements `measure.Measured`. No package exists
+`scan.Dir` and `scan.Exclude` and offers facts to `cache`. `internal/cache` implements `measure.Measured`. `internal/scan` and
+`internal/measure` both call `role.Of`, so the census and the tally agree on
+every file. No package exists
 only to forward a function.
 
 ## Invariants
@@ -134,6 +139,9 @@ the same commit.
 - **The visual form adds presentation only.** Its colour, its strip, its
   blank line, its boxes, its SI units and its marks present the same facts, so
   the document's exact values are the reference behind every printed number.
+- **A role is a function of the path.** A file's role is read from its path
+  below the root alone, never from its content, so the walk applies it without
+  opening a file and both phases agree on it.
 - **Line fidelity.** One line per LF, plus the final run when the content does
   not end in LF; empty content has zero lines; a CR is part of its line.
 - **The walk's reach.** The walk never follows a symlink below the root and
