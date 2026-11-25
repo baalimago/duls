@@ -13,8 +13,9 @@ Read this when: adding a feature, writing a scenario, or changing the gate.
 | `internal/scan/exclude_test.go` | Exclude patterns: refusal with its index, the path-and-suffix rule, the zero value, walk counting and check order, and a benchmark. |
 | `internal/scan/exclude_internal_test.go` | The fnmatch table recorded from glibc, the POSIX classes, each fast path against every suffix, and every refusal reason. |
 | `internal/measure/measure_test.go` | Phase 2: dispatch order, policy, proof, accounting, deadline, progress, the store seam. |
-| `internal/plan/plan_test.go` | The rows: folding, ordering, shares, promotion, marks, determinism, colours. |
-| `internal/view/view_test.go` | The lines: the strip, the columns, width, marks, the footer. |
+| `internal/role/role_test.go` | The role rules and their precedence, the names, and a benchmark of `Of`. |
+| `internal/plan/plan_test.go` | The rows: folding, ordering, shares, promotion, marks, determinism, colours, role shares. |
+| `internal/view/view_test.go` | The lines: the strip, the columns, width, marks, the type and role lines, the footer. |
 | `internal/agent/agent_test.go` | The document: the keys, the null values, the accounting, the folded row, the unknown kind. |
 | `internal/frame/frame_test.go` | The live outline: trigger, interval, cost stretch, repaint, geometry, erase. |
 | `internal/cache/cache_test.go` | The store: witness, trust window, torn shards, cap, overlap, mailbox, flush budget. |
@@ -26,7 +27,7 @@ Read this when: adding a feature, writing a scenario, or changing the gate.
 | `internal/tui/style_test.go` | The palette, the depth, and the form gate. |
 | `internal/tui/style_pty_linux_test.go` | The terminal gate and width on a pseudo-terminal. |
 | `internal/integrationtest/itest` | The black-box toolkit: build once, run the real binary, the PTY runner. |
-| `internal/integrationtest/cli` | The scenarios: the visual view, the agent document, flags, exclude patterns, paths, the deadline, the store, the frame. |
+| `internal/integrationtest/cli` | The scenarios: the visual view, the agent document, roles, flags, exclude patterns, paths, the deadline, the store, the frame. |
 
 ## Layers
 

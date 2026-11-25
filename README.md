@@ -65,6 +65,16 @@ a developer machine `.git`, `.cache` and `.local` are most of the tree. A line
 count comes from a second pass over the files the view can show, bounded by
 `-t`.
 
+The `lines` line splits the counted lines by the role each file plays:
+`lines  40% source · 30% test · 15% docs · 8% config · 4% generated · 3% vendored`.
+A role comes from the path alone, never the content: `vendor/` and
+`node_modules/` are vendored, lockfiles and `*.pb.go` are generated, `*_test.go`,
+`*.test.ts`, `test_*.py` and anything under `tests/` or `__tests__/` are tests,
+and so on. A role the run could not count prints `? <role>`. The JSON document
+carries each role's file count and proven lines under `roles`; they are exact
+when `totals.linesExact` is true. [architecture/role.md](architecture/role.md)
+lists every rule.
+
 `df` answers a different question: it counts the blocks the whole device
 allocates, including what no walk can reach. That is directories this user may
 not read, mounts the walk leaves, the filesystem's own tables, and space no

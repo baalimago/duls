@@ -7,6 +7,7 @@ import (
 
 	"github.com/baalimago/duls/internal/agent"
 	"github.com/baalimago/duls/internal/plan"
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 )
 
@@ -17,6 +18,7 @@ func TestEncodeWritesTheAlgorithmFacts(t *testing.T) {
 			Files: 6, Bytes: 420, Lines: 84, BytesExact: true, LinesExact: true,
 			Measured: 6,
 			Types:    []plan.TypeShare{{Ext: ".md", Files: 6, Share: 100}},
+			Roles:    []plan.RoleShare{{Role: role.Docs, Files: 6, Lines: 84, Share: 100}},
 		},
 		Entries: []plan.Entry{
 			{
@@ -33,6 +35,7 @@ func TestEncodeWritesTheAlgorithmFacts(t *testing.T) {
 	want := `{"root":"/root",` +
 		`"totals":{"files":6,"bytes":420,"lines":84,"bytesExact":true,"linesExact":true,"typesMore":0},` +
 		`"types":[{"ext":".md","files":6,"share":100}],` +
+		`"roles":[{"role":"docs","files":6,"lines":84,"share":100}],` +
 		`"entries":[{"name":"people","path":"people","kind":"dir","depth":0,"files":2,"bytes":170,"share":40,"exact":true,` +
 		`"children":[{"name":"ana.md","kind":"file","files":null,"lines":17},{"name":"ben.md","kind":"file","files":null,"lines":17}],"more":0},` +
 		`{"name":"README.md","path":"README.md","kind":"file","depth":0,"bytes":100,"exact":true,"lines":20}],` +
@@ -51,6 +54,7 @@ func TestEncodeStatesWhatTheRunCouldNotProve(t *testing.T) {
 			Excluded: 4, Exclude: []string{"a", "*.log"},
 			Stopped: scan.StopDeadline, StoppedPhase: scan.PhaseCount,
 			Filesystem: &scan.Filesystem{Total: 1000, Used: 400, Avail: 500},
+			Roles:      []plan.RoleShare{{Role: role.Source, Files: 7, Lines: 12, Share: 100}, {Role: role.Other, Files: 2, Lines: -1}},
 		},
 		Entries: []plan.Entry{
 			{
@@ -76,6 +80,7 @@ func TestEncodeStatesWhatTheRunCouldNotProve(t *testing.T) {
 		`"kind":"file","depth":0,"bytes":100,"exact":true,"lines":null`,
 		`{"name":"+2 smaller","kind":"folded","files":2,"bytes":50,"share":12,"exact":false,"names":["a","b"]}`,
 		`"filesystem":{"total":1000,"used":400,"avail":500}`,
+		`"roles":[{"role":"source","files":7,"lines":12,"share":100},{"role":"other","files":2,"lines":null,"share":null}]`,
 	} {
 		if !strings.Contains(string(got), want) {
 			t.Fatalf("document =\n%s\nwant it to hold\n%s", got, want)
@@ -89,7 +94,7 @@ func TestEncodeEmptyViewHasNoTypes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
-	for _, want := range []string{`"types":[]`, `"entries":[]`, `"stopped":"none"`} {
+	for _, want := range []string{`"types":[]`, `"roles":[]`, `"entries":[]`, `"stopped":"none"`} {
 		if !strings.Contains(string(got), want) {
 			t.Fatalf("document = %s, want it to hold %s", got, want)
 		}

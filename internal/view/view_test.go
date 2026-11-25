@@ -3,12 +3,14 @@ package view_test
 import (
 	"reflect"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
 	"github.com/baalimago/duls/internal/plan"
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 	"github.com/baalimago/duls/internal/tui"
 	"github.com/baalimago/duls/internal/view"
@@ -412,6 +414,43 @@ func TestCountsPrintSI(t *testing.T) {
 	exact := plan.View{Totals: plan.Totals{Files: 1234, Lines: 0, LinesExact: true}}
 	if line := body(exact, view.Options{Width: 150, Bytes: true})[0]; !strings.Contains(line, "1.2k files") {
 		t.Fatalf("--bytes totals line = %q, want the count still in SI units", line)
+	}
+}
+
+func TestRoleLine(t *testing.T) {
+	roles := []plan.RoleShare{
+		{Role: role.Source, Files: 6, Lines: 60, Share: 60},
+		{Role: role.Test, Files: 3, Lines: 30, Share: 30},
+		{Role: role.Generated, Files: 1, Lines: 1, Share: 0},
+		{Role: role.Docs, Files: 1, Lines: 0, Share: 0},
+		{Role: role.Other, Files: 2, Lines: -1, Skipped: 2},
+	}
+	types := []plan.TypeShare{{Ext: ".go", Files: 13, Share: 100}}
+	v := plan.View{Totals: plan.Totals{Files: 13, Lines: 100, LinesExact: true, Types: types, Roles: roles}}
+	lines := body(v, view.Options{Width: 150})
+	if want := "  lines  60% source · 30% test · <1% generated"; lines[2] != want {
+		t.Fatalf("role line = %q, want %q", lines[2], want)
+	}
+	if !strings.HasPrefix(lines[3], "  entry") {
+		t.Fatalf("line 4 = %q, want the header after the role line", lines[3])
+	}
+	bound := v
+	bound.Totals.LinesExact = false
+	bound.Totals.Roles = append(slices.Clone(roles), plan.RoleShare{Role: role.Vendored, Files: 3, Lines: -1, Skipped: 1})
+	if got, want := body(bound, view.Options{Width: 150})[2], "  lines  ~60% source · ~30% test · ~<1% generated · ? vendored"; got != want {
+		t.Fatalf("lower-bound role line = %q, want %q", got, want)
+	}
+	if got := body(bound, view.Options{Width: 150, Provisional: true})[2]; !strings.HasPrefix(got, "  entry") {
+		t.Fatalf("provisional line 3 = %q, want no role line in a frame", got)
+	}
+	narrow := body(v, view.Options{Width: 40})
+	if got := utf8.RuneCountInString(narrow[2]); got > 40 || !strings.HasSuffix(narrow[2], "…") {
+		t.Fatalf("narrow role line is %d runes: %q", got, narrow[2])
+	}
+	unproven := v
+	unproven.Totals.Roles = []plan.RoleShare{{Role: role.Other, Files: 13, Lines: -1, Skipped: 13}}
+	if line := body(unproven, view.Options{Width: 150})[2]; !strings.HasPrefix(line, "  entry") {
+		t.Fatalf("a view whose only role the policy skipped has a role line: %q", line)
 	}
 }
 

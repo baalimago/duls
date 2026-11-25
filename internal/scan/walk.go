@@ -17,6 +17,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/baalimago/duls/internal/role"
 )
 
 // Mode names one of the four presets -m selects (README D8).
@@ -109,8 +111,9 @@ type Dir struct {
 // open, one the walk was refused, or one another filesystem holds; "" means the
 // root is unfinished. Types counts the proved files by their final extension,
 // lowercased with its dot, and "" for a name without one; the counts sum to
-// Files. Unreadable counts regular files whose permission was refused,
-// UnreadableDirs counts the directories whose listing was refused, and
+// Files. Roles counts the same files by their role (architecture/role.md) and
+// sums to Files too. Unreadable counts regular files whose permission was
+// refused, UnreadableDirs counts the directories whose listing was refused, and
 // OtherFilesystems counts the directories the walk left because another
 // filesystem is mounted there. Excluded counts the directories and regular
 // files an exclude pattern left out, and Exclude holds the patterns in the
@@ -121,6 +124,7 @@ type Snapshot struct {
 	Dirs             []Dir
 	Frontier         []string
 	Types            map[string]int
+	Roles            [role.Count]int
 	Files            int
 	Bytes            int64
 	Unreadable       int
@@ -326,9 +330,11 @@ type walk struct {
 	excluded atomic.Int64
 	pubMu    sync.Mutex
 
-	// census counts the extensions of every file the walk counted, guarded by
-	// aggMu; tree is the sink's view of the facts held at one observation.
+	// census and roles count the extensions and roles of every file the walk
+	// counted, guarded by aggMu; tree is the sink's view of the facts held at
+	// one observation.
 	census map[string]int
+	roles  [role.Count]int
 	tree   func() Snapshot
 }
 
@@ -447,7 +453,7 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		entryInfo, err := entry.Info()
 		if err != nil {
 			if errors.Is(err, fs.ErrPermission) && entry.Type().IsRegular() {
-				got.refuse(name)
+				got.refuse(name, role.Of(rel))
 				if got.files%progressStride == 0 {
 					w.record(node, &got)
 					w.publish()
@@ -462,7 +468,7 @@ func (w *walk) list(ctx context.Context, node *dirNode, next *[]*dirNode) error 
 		if !entryInfo.Mode().IsRegular() {
 			continue
 		}
-		got.count(name, entryInfo.Size())
+		got.count(name, entryInfo.Size(), role.Of(rel))
 		if got.files%progressStride == 0 {
 			w.record(node, &got)
 			w.publish()
@@ -517,30 +523,32 @@ type gathered struct {
 	kids   []Child
 	dirs   []*dirNode
 	ext    map[string]int
+	roles  [role.Count]int
 }
 
 // count records one proved file: its bytes, its place among the directory's
-// largest files, and its final extension.
-func (g *gathered) count(name string, size int64) {
-	g.files++
+// largest files, its final extension and its role.
+func (g *gathered) count(name string, size int64, r role.Role) {
 	g.bytes += size
 	g.kids = keepLargest(g.kids, Child{Name: name, Bytes: size, Lines: -1})
-	if g.ext == nil {
-		g.ext = map[string]int{}
-	}
-	g.ext[extOf(name)]++
+	g.census(name, r)
 }
 
 // refuse records a file whose size the walk could not read: it counts toward the
 // totals and the census, and never toward the largest children, because a known
 // child states its own bytes (architecture/scan.md).
-func (g *gathered) refuse(name string) {
-	g.files++
+func (g *gathered) refuse(name string, r role.Role) {
 	g.unread++
+	g.census(name, r)
+}
+
+func (g *gathered) census(name string, r role.Role) {
+	g.files++
 	if g.ext == nil {
 		g.ext = map[string]int{}
 	}
-	g.ext[extOf(name)]++
+	g.ext[role.Ext(name)]++
+	g.roles[r]++
 }
 
 // record folds one batch into the directory and every ancestor, so each node's
@@ -565,6 +573,9 @@ func (w *walk) record(node *dirNode, g *gathered) {
 	for ext, count := range g.ext {
 		w.census[ext] += count
 	}
+	for r, count := range g.roles {
+		w.roles[r] += count
+	}
 	w.files.Add(int64(g.files))
 	w.bytes.Add(g.bytes)
 	*g = gathered{}
@@ -576,21 +587,6 @@ func (w *walk) markListed(node *dirNode, witness Witness) {
 	node.listed = true
 	node.witness = witness
 	w.aggMu.Unlock()
-}
-
-// extOf returns the final extension of a base name, lowercased with its dot,
-// and "" when the name has none: a leading dot alone is not an extension, and
-// a trailing dot names nothing.
-func extOf(name string) string {
-	for i := len(name) - 1; i > 0; i-- {
-		if name[i] == '/' {
-			return ""
-		}
-		if name[i] == '.' && i < len(name)-1 {
-			return strings.ToLower(name[i:])
-		}
-	}
-	return ""
 }
 
 func (w *walk) publish() {
@@ -699,6 +695,7 @@ func (w *walk) snapshot(stopped Stop) Snapshot {
 		snapshot.Bytes = w.rootNode.bytes
 		snapshot.Unreadable = w.rootNode.unread
 		snapshot.Types = maps.Clone(w.census)
+		snapshot.Roles = w.roles
 	}
 	w.flatten(w.rootNode, &snapshot.Dirs)
 	return snapshot

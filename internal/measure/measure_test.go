@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/baalimago/duls/internal/measure"
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 )
 
@@ -59,6 +60,7 @@ func TestDirSeqBeatsGlobalSize(t *testing.T) {
 func TestDenyListNeverOpens(t *testing.T) {
 	root := t.TempDir()
 	write(t, root, "a.PNG", 4)
+	write(t, root, "e.Pdf", 4)
 	write(t, root, "b.json", 4)
 	write(t, root, "c", 4)
 	write(t, root, "d.gz.txt", 4)
@@ -69,12 +71,12 @@ func TestDenyListNeverOpens(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range log.seen() {
-		if strings.HasSuffix(path, "a.PNG") {
-			t.Fatal("the denied file was opened")
+		if strings.HasSuffix(path, "a.PNG") || strings.HasSuffix(path, "e.Pdf") {
+			t.Fatalf("the denied file %s was opened", path)
 		}
 	}
-	if result.Skipped != 1 || result.Measured != 3 {
-		t.Fatalf("skipped = %d measured = %d, want 1 and 3", result.Skipped, result.Measured)
+	if result.Skipped != 2 || result.Measured != 3 {
+		t.Fatalf("skipped = %d measured = %d, want 2 and 3", result.Skipped, result.Measured)
 	}
 }
 
@@ -250,6 +252,32 @@ func TestAccountingCloses(t *testing.T) {
 	}
 }
 
+// TestRolesSplitTheProof proves the role tallies hold exactly the measured
+// files, their lines and the skipped files (architecture/role.md).
+func TestRolesSplitTheProof(t *testing.T) {
+	root := t.TempDir()
+	for rel, lines := range map[string]int{"a.go": 3, "a_test.go": 2, "tests/x.py": 1, "README.md": 4, "pic.png": 9} {
+		if err := os.WriteFile(write(t, root, rel, 0), []byte(strings.Repeat("l\n", lines)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	result, err := measure.New().Count(context.Background(), planFor(t, root), measure.Options{Workers: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want [role.Count]role.Tally
+	want[role.Source] = role.Tally{Files: 1, Lines: 3}
+	want[role.Test] = role.Tally{Files: 2, Lines: 3}
+	want[role.Docs] = role.Tally{Files: 1, Lines: 4}
+	want[role.Other] = role.Tally{Skipped: 1}
+	if result.Roles != want {
+		t.Fatalf("roles = %+v, want %+v; a skipped file proves no line", result.Roles, want)
+	}
+	if result.Measured != 4 || result.Lines != 10 {
+		t.Fatalf("result = %+v, want the tallies to sum to the totals", result)
+	}
+}
+
 func TestNamedCells(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -389,6 +417,9 @@ func TestCachedFactSkipsOpen(t *testing.T) {
 	}
 	if result.Measured != 1 || result.Lines != 7 || result.Reused != 1 {
 		t.Fatalf("result = %+v, want the cached count and one reuse", result)
+	}
+	if got := result.Roles[role.Other]; got != (role.Tally{Files: 1, Lines: 7}) {
+		t.Fatalf("other = %+v, want the reused fact in its role", got)
 	}
 }
 

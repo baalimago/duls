@@ -28,7 +28,8 @@ type document struct {
 		Files int    `json:"files"`
 		Share int    `json:"share"`
 	} `json:"types"`
-	Entries []entry `json:"entries"`
+	Roles   []roleShare `json:"roles"`
+	Entries []entry     `json:"entries"`
 	// Filesystem is the device that holds the root, stated only when the run's
 	// totals are lower bounds. A nil pointer is a document without the key.
 	Filesystem *struct {

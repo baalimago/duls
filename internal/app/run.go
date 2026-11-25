@@ -141,6 +141,7 @@ func Run(ctx context.Context, opts Options, req Request) error {
 		Unknown:    result.Unknown,
 		Unreadable: result.Unreadable,
 		Reused:     result.Reused,
+		Roles:      result.Roles,
 		Stopped:    result.Stopped,
 	}
 	planned := planner.Plan(snapshot, measured)

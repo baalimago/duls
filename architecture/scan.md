@@ -18,6 +18,7 @@ view's peek column can show, or how progress reaches the frame.
 | `internal/scan/filesystem_linux.go` | `FilesystemOf`: `statfs` on the root. |
 | `internal/scan/filesystem_other.go` | The fallback that reports no device usage. |
 | `internal/scan/exclude.go` | `Exclude`, `NewExclude`, `Verdict`, `PatternError`: the exclude patterns, compiled once under glibc `fnmatch(pattern, path, 0)`. |
+| `internal/role/role.go` | `Ext`: the extension `Snapshot.Types` counts; `Of`: the role each counted file adds to `Snapshot.Roles` (architecture/role.md). |
 | `internal/app/run.go` | The walk's one caller: `Preset`, `Walk`, `FilesystemOf`, and the sink it passes. `cmd/duls` calls `NewExclude`, and `internal/measure` applies the same `Exclude`. |
 
 ## Flow
@@ -83,20 +84,26 @@ about the path itself, so it needs no read permission on the directory and
 reports a device whose tree is refused. A platform that cannot report it leaves
 the fact out: a run never fails because the device is unknown.
 
-`Snapshot.Types` counts the proved files by their final extension: the last dot
-of the base name and the characters after it, lowercased with the dot, and `""`
-for a name without one. A leading dot alone is not an extension, and a trailing
-dot names none. Directories and hidden entries never enter the census, so the
+`Snapshot.Types` counts the proved files by their final extension
+(`role.Ext`): the last dot of the base name and the characters after it,
+lowercased with the dot, and `""` for a name without one. A leading dot alone
+is not an extension, and a trailing dot names none. Directories and hidden entries never enter the census, so the
 counts sum to `Snapshot.Files`. The walk keeps one census for the whole run
 (`walk.census`), fed by the same batch as the totals, so the counts are the
 files the walk counted and never name a file it did not reach, whether the walk
 finished or a deadline cut it.
 
+`Snapshot.Roles` counts the same files by `role.Of` of their root-relative
+path, in the same batch (`gathered.census`, `walk.roles`), so it sums to
+`Snapshot.Files` too. A file whose size was refused enters both censuses. The
+role reads only the path, so the walk still opens no file
+([role.md](./role.md)).
+
 `Snapshot.Excluded` counts the directories and regular files an exclude
 pattern left out, each once: an excluded directory counts as one entry, and
 nothing below it is listed or counted. `Snapshot.Exclude` holds the patterns in
 the order given. An exclusion holds no fact and opens no subtree: the entry is
-absent from `Dirs`, `Kids`, `Frontier`, the census and every total, and the
+absent from `Dirs`, `Kids`, `Frontier`, both censuses and every total, and the
 totals stay exact. The count is an atomic counter on `walk`, read by
 `snapshot()`, so live frames and the final snapshot carry it; it does not go
 through `gathered`, because `record` returns early on a batch with no files or

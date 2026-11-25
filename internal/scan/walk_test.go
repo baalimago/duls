@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/baalimago/duls/internal/role"
 	"github.com/baalimago/duls/internal/scan"
 )
 
@@ -133,6 +134,9 @@ func TestCutWalkKeepsTheFactsItProved(t *testing.T) {
 	}
 	if files != snap.Files {
 		t.Fatalf("type census holds %d files, want the %d the totals report", files, snap.Files)
+	}
+	if got := snap.Roles[role.Other]; got != snap.Files {
+		t.Fatalf("role census holds %d files, want the %d the totals report", got, snap.Files)
 	}
 	dirs := map[string]scan.Dir{}
 	for _, dir := range snap.Dirs {
@@ -289,6 +293,9 @@ func TestPermissionPolicy(t *testing.T) {
 		}
 		if len(snap.Dirs) != 1 || len(snap.Dirs[0].Kids) != 0 {
 			t.Fatalf("kids = %+v, want none: a file whose size the walk could not read is not a known child", snap.Dirs[0].Kids)
+		}
+		if snap.Roles[role.Other] != 1 {
+			t.Fatalf("roles = %v, want the refused file in the role census", snap.Roles)
 		}
 	})
 }
@@ -633,6 +640,7 @@ func TestTypeCensus(t *testing.T) {
 	file(t, root, "b.go", 1)
 	file(t, root, "c.MD", 1)
 	file(t, root, "Makefile", 1)
+	file(t, root, "tail.go.", 1)
 	file(t, root, "x.tar.gz", 1)
 	file(t, root, ".hidden.go", 1)
 	file(t, root, "sub/d.go", 1)
@@ -643,7 +651,7 @@ func TestTypeCensus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("walk: %v", err)
 	}
-	want := map[string]int{".go": 3, ".md": 1, ".gz": 1, "": 1}
+	want := map[string]int{".go": 3, ".md": 1, ".gz": 1, "": 2}
 	if !reflect.DeepEqual(snap.Types, want) {
 		t.Fatalf("types = %v, want %v; hidden files and directories never count", snap.Types, want)
 	}
@@ -653,6 +661,11 @@ func TestTypeCensus(t *testing.T) {
 	}
 	if sum != snap.Files {
 		t.Fatalf("types sum to %d, want the %d files the walk counted", sum, snap.Files)
+	}
+	var roles [role.Count]int
+	roles[role.Source], roles[role.Docs], roles[role.Config], roles[role.Other] = 3, 1, 1, 2
+	if snap.Roles != roles {
+		t.Fatalf("roles = %v, want %v; hidden files and directories never count", snap.Roles, roles)
 	}
 }
 

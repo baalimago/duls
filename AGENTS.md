@@ -31,7 +31,8 @@ re-checking the code:
 ## Architecture
 
 duls prints the size view of a directory: the view slivingdoc prints when an
-initial pull materializes a notebook into an empty directory. It walks one
+initial pull materializes a notebook into an empty directory, plus a line that
+splits the lines by role. It walks one
 directory without reading content, counts the lines of the files the view
 can show, builds an outline of the largest entries, and answers a colour
 terminal with the visual view and a pipe with a JSON document. It has no
@@ -83,6 +84,12 @@ document, and `-json` always does.
                  | witness,   |  | repaint,     |  | palette,   |  | keys, null,  |
                  | windows    |  | erase        |  | width      |  | accounting   |
                  +------------+  +--------------+  +------------+  +--------------+
+
+                 +------------+
+                 | internal/  |  role.Of: a file's role from its path,
+                 | role       |  called by internal/scan and
+                 | path rules |  internal/measure
+                 +------------+
 ```
 
 Runtime layout:
@@ -115,6 +122,7 @@ duls/
 |   |-- frame/               New, Rasterizer, Publish, Erase
 |   |-- measure/             Counter, Count, Plan, Options, Result, Fact
 |   |-- plan/                Planner, Plan, View, Entry, Totals, Measured
+|   |-- role/                Of, Role, Count, Tally: a file's role from its path
 |   |-- scan/                Walker, Walk, Snapshot, Dir, Sink, Preset, Exclude
 |   |-- tui/                 Form, DetectForm, Style, DepthOf, IsTerminal, Width
 |   |-- view/                Renderer, Lines, Options
@@ -130,7 +138,8 @@ Interfaces belong to the package that consumes them. `internal/cli` owns its
 `command` view (three calls). `internal/app` owns the `Options` stream,
 environment, form, style, and width seams. `cmd/duls` compiles `scan.Exclude`
 for the request. `internal/measure` consumes `scan.Dir` and `scan.Exclude` and
-offers facts to `measure.Measured`, which `internal/cache` implements. No package exists only to forward a function.
+offers facts to `measure.Measured`, which `internal/cache` implements. `internal/scan`
+and `internal/measure` both call `role.Of`. No package exists only to forward a function.
 
 ### Event Flow
 
@@ -160,10 +169,11 @@ app.Run
   scan.Walk            phase 1: readdir and lstat only; hidden skipped unless
                         --all; excluded entries left out and counted; regular
                         files only; another device left open; kids, totals,
-                        frontier
+                        frontier, the type and role census
   scan.FilesystemOf    the root's device: total, used and available bytes,
                         absent when the platform cannot report it
-  measure.Count        phase 2: fixed order, policy, witness, proof
+  measure.Count        phase 2: fixed order, policy, witness, proof, lines
+                        per role
   plan.Plan            rows: byte order, promote, fold, peek, totals
   agent form           agent.Encode -> one JSON document
   visual form          view.Lines width clamp [40,150], then frame.Erase
@@ -190,7 +200,9 @@ os.Stdout, Stderr: os.Stderr}))`. The router owns the command line:
 4. **Report a failure.** Exactly one line on stderr, `error: <message>`, and
    exit 1. No stack trace, no log record, no second line.
 
-`app.Version` is the one package-level value. The linker injects it through
+`app.Version` is the one package-level variable; the others are read-only
+lookup tables (`role`'s rule tables, `measure.deniedExtensions`, `view.units`).
+The linker injects `app.Version` through
 `-X github.com/baalimago/duls/internal/app.Version`; a development build
 keeps `0.1.0-dev`. Every other dependency is injected.
 
@@ -269,8 +281,11 @@ architecture, and a change that touches one updates the matching doc under
   root's is not entered, and the footer counts it.
 - The bounds are constants: at most 8 entries, at most 6 largest children per
   entry. No flag changes them.
-- The visual layout is the one slivingdoc prints for an initial pull, pinned by
-  a scenario at 150 columns; the document carries the same facts.
+- The visual layout is the one slivingdoc prints for an initial pull plus the
+  role line, which slivingdoc does not print. A scenario pins it at 150
+  columns; the document carries the same facts.
+- A file's role is a function of its path below the root alone, never of its
+  content (architecture/role.md).
 - The cache is derived state: deleting it changes only speed and the footer's
   cache token. A cache failure is a miss, never an error line or an exit code.
   A run never shows its store: a store inside the scanned root is left out of

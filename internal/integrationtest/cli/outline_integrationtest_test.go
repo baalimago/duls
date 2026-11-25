@@ -18,6 +18,7 @@ func TestScenarioOutlineOfATree(t *testing.T) {
 	want := strings.Join([]string{
 		"  6 files · 420 B · 84 lines",
 		"  types  100% .md",
+		"  lines  100% docs",
 		"  entry       files   size  share largest inside, without a row of its own",
 		"  people          2  170 B    40% ana.md 17 · ben.md 17",
 		"  meetings        3  150 B    36% a.md 10 · b.md 10 · c.md 10",

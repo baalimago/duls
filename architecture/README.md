@@ -1,10 +1,10 @@
 # duls architecture
 
 duls prints the size view of a directory: the view slivingdoc prints when
-an initial pull materializes a notebook into an empty directory. It walks one
-directory without reading content, counts the lines of the files the view can
-show, and answers a terminal with the visual view and a pipe with a JSON
-document.
+an initial pull materializes a notebook into an empty directory, plus a line
+that splits the lines by role. It walks one directory without reading content,
+counts the lines of the files the view can show, and answers a terminal with
+the visual view and a pipe with a JSON document.
 
 Start here, then open the doc for your concern. Each doc names the files and
 symbols to read before you change them.
@@ -15,6 +15,7 @@ symbols to read before you change them.
 | [cli.md](./cli.md) | The command surface, flags, path resolution, streams, environment, and exit codes. |
 | [scan.md](./scan.md) | Phase 1: the parallel metadata walk, the fact set, the frontier, and progress. |
 | [measure.md](./measure.md) | Phase 2: the dispatch order, the policy, the proof, the accounting, and the deadline. |
+| [role.md](./role.md) | How a file's path decides its role (source, test, docs, config, generated, vendored, other), and the role line and key. |
 | [plan.md](./plan.md) | How facts become rows: byte ordering, promotion, folding, shares, and the bounds. |
 | [view.md](./view.md) | How rows become lines: the strip, the columns, width adaptation, marks, and the footer. |
 | [agent.md](./agent.md) | The JSON document a program reads: its shape, its keys, and the values a run leaves out. |
@@ -30,6 +31,8 @@ symbols to read before you change them.
   [errors.md](./errors.md).
 - **Change what the walk counts or when it stops:** [scan.md](./scan.md).
 - **Change what is measured or how a count is proven:** [measure.md](./measure.md).
+- **Change which files count as tests, docs or another role:**
+  [role.md](./role.md), then [view.md](./view.md).
 - **Change what the view counts or how entries are chosen:** [plan.md](./plan.md),
   then [view.md](./view.md).
 - **Change a line a person sees:** [view.md](./view.md), then [tui.md](./tui.md).

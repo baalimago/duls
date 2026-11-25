@@ -10,7 +10,7 @@ touching the width adaptation.
 
 | File | Purpose |
 |------|---------|
-| `internal/view/view.go` | `Renderer`, `Lines`, `Options` (`Style`, `Width`, `Bytes`, `Limit`, `Provisional`), `MinWidth`, `MaxWidth`, `rowIndent`, `displayRows`, `layoutOf`, `rowLine`, `totalsLine`, `typesLine`, `footerLines`, `footerParts`, `peek`, `strip`, `stripWidths`, `byteSize`, `siCount`, `mark`, `cut`, `pad`. |
+| `internal/view/view.go` | `Renderer`, `Lines`, `Options` (`Style`, `Width`, `Bytes`, `Limit`, `Provisional`), `MinWidth`, `MaxWidth`, `rowIndent`, `displayRows`, `layoutOf`, `rowLine`, `totalsLine`, `typesLine`, `rolesLine`, `footerLines`, `footerParts`, `peek`, `strip`, `stripWidths`, `byteSize`, `siCount`, `mark`, `cut`, `pad`. |
 | `internal/plan/plan.go` | The `View`, `Entry`, `Item` and `Totals` values the renderer draws. |
 | `internal/tui/style.go` | `Style`, `Dim`, `Bold`, `Segment`, and the depth the renderer paints at. |
 
@@ -21,6 +21,7 @@ touching the width adaptation.
 
   6 files · 718 B · 10 lines
   types  100% .md
+  lines  100% docs
   entry       files   size  share largest inside, without a row of its own
   ■ README.md       -  700 B      - 1 line
   ■ meetings        3   12 B     2% a.md 3 · b.md 2 · c.md 1
@@ -34,15 +35,24 @@ blank line appear only when the view has a row whose bytes the strip can show,
 so a view without such a row starts at the totals line.
 
 Then come the dimmed totals line, the type line when the walk counted a file,
-the dimmed header, and one row per entry behind a `■` box in the entry's
-colour; the folded row's box is dim. Every line except the strip starts with
-two spaces and ends without trailing spaces. The header is a fixed sentence, cut
-to the width.
+the role line in an answer with a role to print, the dimmed header, and one
+row per entry behind a `■` box in the entry's colour; the folded row's box is
+dim. Every line except the strip starts with two spaces and ends without
+trailing spaces. The header is a fixed sentence, cut to the width.
 
 The type line names the share of each type as a percentage of the file count,
 largest first, and counts the types that did not fit as `+N more`. A name with
 no extension prints `(none)`. The line is cut with `…` like the peek column, so
 a narrow terminal shows fewer types.
+
+The role line starts with `lines` and names each role with more than zero
+proven lines as its share of the proven line total, in the plan's order:
+`lines  40% source · 30% test · 15% docs`. A share below one percent prints
+`<1%`. Every share carries `~` when the line total is a lower bound. A role
+with a file the count neither proved nor skipped prints `? <role>`, never a
+zero; a role whose every file the policy skipped is left out. A provisional
+view, the frame's, never draws the line. It is cut with `…` like the type line
+([role.md](./role.md)).
 
 A row's name is its path, indented two spaces per depth. A folded row's name is
 `+N smaller`. A file row prints `-` in the files and share columns and its line

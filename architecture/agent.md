@@ -10,7 +10,7 @@ or flag selects it.
 
 | File | Purpose |
 |------|---------|
-| `internal/agent/agent.go` | `Request`, `Document`, `Totals`, `Type`, `DirEntry`, `FileEntry`, `FoldedEntry`, `Child`, `Accounting`, `Encode`, `row`, `child`, `lines`, `foldedName`. |
+| `internal/agent/agent.go` | `Request`, `Document`, `Totals`, `Type`, `Role`, `DirEntry`, `FileEntry`, `FoldedEntry`, `Child`, `Accounting`, `Encode`, `row`, `child`, `roles`, `lines`, `foldedName`. |
 | `internal/app/run.go` | `writeAgent` and the `form == tui.Agent` branch of `Run`. |
 | `internal/app/options.go` | `Request.JSON`, `Options.Form`, `Options.formOf`. |
 | `internal/tui/style.go` | `Form`, `Agent`, `DetectForm`. |
@@ -42,6 +42,7 @@ cursor move or an escape byte.
 {"root":"/notes/people",
  "totals":{"files":3,"bytes":152,"lines":11,"bytesExact":true,"linesExact":true,"typesMore":0},
  "types":[{"ext":".md","files":3,"share":100}],
+ "roles":[{"role":"docs","files":3,"lines":11,"share":100}],
  "entries":[{"name":"cleo.md","path":"cleo.md","kind":"file","depth":0,"bytes":67,"exact":true,"lines":4}],
  "accounting":{"stopped":"none","measured":3,"notScanned":0,"skipped":0,"unknown":0,"unreadable":0,"unreadableDirs":0,"otherFilesystems":0,"excluded":0,"reused":0}}
 ```
@@ -55,6 +56,10 @@ of that view. The keys are:
   flags, and `typesMore`, the number of file types the census left out.
 - `types`: at most six file types, largest by file count first. `ext` is the
   final extension with its dot, or `""` for a name without one.
+- `roles`: every role the run saw, ordered by proven lines. `files` is the
+  role's file count, `lines` its proven lines and `share` their rounded
+  percentage of `totals.lines`; `lines` and `share` are null when the count
+  proved no file of the role ([role.md](./role.md)).
 - `entries`: the planned rows in the planner's order. `kind` is `dir`, `file`
   or `folded`.
 - `accounting`: what the run proved and what it did not.

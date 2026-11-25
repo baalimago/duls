@@ -1,7 +1,7 @@
 // Package agent encodes one planned view as the JSON document of agent mode:
-// the totals, the type census, the rows the algorithm chose, and what the run
-// could not prove. The document is the visual view's facts as data, not a
-// second layout (architecture/agent.md).
+// the totals, the type and role census, the rows the algorithm chose, and what
+// the run could not prove. The document is the visual view's facts as data,
+// not a second layout (architecture/agent.md).
 package agent
 
 import (
@@ -29,6 +29,7 @@ type Document struct {
 	Root    string `json:"root"`
 	Totals  Totals `json:"totals"`
 	Types   []Type `json:"types"`
+	Roles   []Role `json:"roles"`
 	Entries []any  `json:"entries"`
 	// Filesystem is the usage of the device that holds the root, absent when
 	// the run's totals are exact or the platform cannot report it.
@@ -62,6 +63,16 @@ type Type struct {
 	Ext   string `json:"ext"`
 	Files int    `json:"files"`
 	Share int    `json:"share"`
+}
+
+// Role is one role's file count and its share of the proven lines
+// (architecture/role.md). Lines and Share are null when the count proved no
+// file of the role.
+type Role struct {
+	Role  string `json:"role"`
+	Files int    `json:"files"`
+	Lines *int64 `json:"lines"`
+	Share *int   `json:"share"`
 }
 
 // DirEntry is a directory row: its subtree's files and bytes, its share of the
@@ -163,6 +174,7 @@ func Encode(req Request) ([]byte, error) {
 		Root:       req.Root,
 		Totals:     totals(v.Totals),
 		Types:      types(v.Totals.Types),
+		Roles:      roles(v.Totals.Roles),
 		Entries:    entries,
 		Filesystem: filesystem(v.Totals.Filesystem),
 		Accounting: accounting(v.Totals, req.Limit),
@@ -196,6 +208,19 @@ func types(shares []plan.TypeShare) []Type {
 	out := make([]Type, 0, len(shares))
 	for _, share := range shares {
 		out = append(out, Type{Ext: share.Ext, Files: share.Files, Share: share.Share})
+	}
+	return out
+}
+
+func roles(shares []plan.RoleShare) []Role {
+	out := make([]Role, 0, len(shares))
+	for _, rs := range shares {
+		r := Role{Role: rs.Role.String(), Files: rs.Files, Lines: lines(rs.Lines)}
+		if r.Lines != nil {
+			share := rs.Share
+			r.Share = &share
+		}
+		out = append(out, r)
 	}
 	return out
 }
